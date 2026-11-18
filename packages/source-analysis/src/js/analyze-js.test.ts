@@ -820,6 +820,49 @@ describe("PG-CRYPTO rules", () => {
     expect(large).toBeLessThan(10_000 * TIME_FACTOR);
   });
 
+  it("uses the effective (last) duplicate key and does not trust a mutated or aliased object (#271 review)", () => {
+    const nest = (body: string) => rulesIn(`import { JwtModule } from '@nestjs/jwt'; ${body}`);
+    expect(
+      nest("JwtModule.register({ secret: process.env.KEY, secret: 'hard-coded-value' });"),
+    ).toEqual(["PG-CRYPTO-002"]);
+    expect(
+      nest("JwtModule.register({ secret: 'hard-coded-value', secret: process.env.KEY });"),
+    ).toEqual([]);
+    const jwt = (head: string) =>
+      rulesIn(`import jwt from 'jsonwebtoken'; ${head} jwt.sign(p, cfg.secret);`);
+    expect(jwt("const cfg = { secret: process.env.K, secret: 'hard-coded-value' };")).toEqual([
+      "PG-CRYPTO-002",
+    ]);
+    expect(jwt("const cfg = { secret: 'hard-coded-value', secret: process.env.K };")).toEqual([]);
+    // cfg changed through an alias, a call or an assignment: the literal is not trusted.
+    expect(
+      jwt("const cfg = { secret: 'hard-coded-value' }; const a = cfg; a.secret = load();"),
+    ).toEqual([]);
+    expect(jwt("const cfg = { secret: 'hard-coded-value' }; Object.assign(cfg, load());")).toEqual(
+      [],
+    );
+    expect(jwt("const cfg = { secret: 'hard-coded-value' }; init(cfg);")).toEqual([]);
+    // Untouched: still found.
+    expect(jwt("const cfg = { secret: 'hard-coded-value' };")).toEqual(["PG-CRYPTO-002"]);
+  });
+
+  it("cuts a very deep expression out, keeps the other findings and reports the file partial (#271 review)", () => {
+    const chain = Array.from({ length: 39_000 }, (_, i) => `p${i}`).join(".");
+    const analysis = analyzeJsSource(
+      `import jwt from 'jsonwebtoken';\njwt.sign({}, 'a-hard-coded-secret-value');\nconst y = jwt.verify(t, cfg.${chain});\n`,
+      "src/a.ts",
+    );
+    expect(analysis.findings.map((f) => f.ruleId)).toEqual(["PG-CRYPTO-002"]);
+    expect(analysis.hasParseErrors).toBe(true);
+    // The same file without the chain is complete.
+    expect(
+      analyzeJsSource(
+        "import jwt from 'jsonwebtoken'; jwt.sign({}, 'a-hard-coded-secret-value');",
+        "src/a.ts",
+      ).hasParseErrors,
+    ).toBe(false);
+  });
+
   it("flags broken ciphers", () => {
     expect(
       rulesIn(

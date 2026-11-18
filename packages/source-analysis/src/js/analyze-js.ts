@@ -191,6 +191,50 @@ function scriptKindFor(path: string): ts.ScriptKind {
   return ts.ScriptKind.JSX; // .js/.mjs/.cjs may contain JSX in React projects.
 }
 
+/** Deeper than this is cut out of the analysis (the walkers recurse once per level). */
+const MAX_NESTING_DEPTH = 2500;
+
+/**
+ * The first expression (in source order) that sits deeper than MAX_NESTING_DEPTH, as the range of
+ * the shallowest enclosing expression at that depth, or null. Walks with an explicit stack, so a
+ * chain of any length is measured without recursion.
+ */
+function findDeepExpression(sourceFile: ts.SourceFile): { start: number; end: number } | null {
+  const stack: { node: ts.Node; depth: number }[] = [{ node: sourceFile, depth: 0 }];
+  while (stack.length > 0) {
+    const { node, depth } = stack.pop() as { node: ts.Node; depth: number };
+    if (depth > MAX_NESTING_DEPTH) {
+      // Cut at half the limit, so what remains is well inside it whatever the shape of the chain.
+      let target: ts.Node | undefined = node;
+      for (let up = depth - MAX_NESTING_DEPTH / 2; up > 0 && target; up -= 1)
+        target = target.parent;
+      while (
+        target &&
+        !(
+          ts.isPropertyAccessExpression(target) ||
+          ts.isElementAccessExpression(target) ||
+          ts.isCallExpression(target) ||
+          ts.isBinaryExpression(target) ||
+          ts.isParenthesizedExpression(target) ||
+          ts.isNonNullExpression(target) ||
+          ts.isAsExpression(target) ||
+          ts.isConditionalExpression(target)
+        )
+      )
+        target = target.parent;
+      if (!target || target.getEnd() - target.getStart(sourceFile) < 2) return null;
+      return { start: target.getStart(sourceFile), end: target.getEnd() };
+    }
+    const children: ts.Node[] = [];
+    ts.forEachChild(node, (child) => {
+      children.push(child);
+    });
+    for (let index = children.length - 1; index >= 0; index -= 1)
+      stack.push({ node: children[index] as ts.Node, depth: depth + 1 });
+  }
+  return null;
+}
+
 /**
  * Analyzes one JavaScript/TypeScript source with the TypeScript compiler AST. Never executes
  * or imports the analyzed code.
@@ -203,16 +247,31 @@ export function analyzeJsSource(
   const scriptKind = options.scriptKind ?? scriptKindFor(path);
   // Parsed under a fixed name (findings use `path`) so the sanitizer check can build a one-file
   // program from it whatever the real extension is (`.vue`, `.mjs`, ...).
-  const sourceFile = ts.createSourceFile(
-    syntheticFileName(scriptKind),
-    code,
-    ts.ScriptTarget.Latest,
-    true,
-    scriptKind,
-  );
+  const parse = (text: string) =>
+    ts.createSourceFile(
+      syntheticFileName(scriptKind),
+      text,
+      ts.ScriptTarget.Latest,
+      true,
+      scriptKind,
+    );
+  let sourceFile = parse(code);
+  // An expression nested deeper than the walkers can follow (a chain of tens of thousands of
+  // properties or operands) is cut out (replaced by a blank `0`, same length and lines) so the rest
+  // of the file is still analyzed; the file is then reported as partially analyzed.
+  let cutDeep = false;
+  for (let round = 0; round < 50; round += 1) {
+    const cut = findDeepExpression(sourceFile);
+    if (cut === null) break;
+    const text = sourceFile.text;
+    const replaced = text.slice(cut.start, cut.end).replace(/[^\n]/g, " ");
+    sourceFile = parse(`${text.slice(0, cut.start)}0${replaced.slice(1)}${text.slice(cut.end)}`);
+    cutDeep = true;
+  }
   const parseDiagnostics = (sourceFile as unknown as { parseDiagnostics?: unknown[] })
     .parseDiagnostics;
-  const hasParseErrors = Array.isArray(parseDiagnostics) && parseDiagnostics.length > 0;
+  const hasParseErrors =
+    cutDeep || (Array.isArray(parseDiagnostics) && parseDiagnostics.length > 0);
   const lineOffset = options.lineOffset ?? 0;
   const findings: RawSourceFinding[] = [];
   const cappedRules = new Set<string>();
@@ -1479,10 +1538,15 @@ export function analyzeJsSource(
       }
       const text = ts.isIdentifier(name) || ts.isStringLiteralLike(name) ? name.text : null;
       if (text === null) continue;
-      if (keys.has(text)) duplicated.add(text);
-      if (ts.isPropertyAssignment(property)) keys.set(text, property.initializer);
-      else if (ts.isShorthandPropertyAssignment(property)) keys.set(text, property.name);
-      else duplicated.add(text);
+      // The effective value of a duplicated key is the last one; a member that is not a plain
+      // value (method, accessor) makes the key unknown.
+      if (ts.isPropertyAssignment(property)) {
+        keys.set(text, property.initializer);
+        duplicated.delete(text);
+      } else if (ts.isShorthandPropertyAssignment(property)) {
+        keys.set(text, property.name);
+        duplicated.delete(text);
+      } else duplicated.add(text);
     }
     for (const text of duplicated) keys.delete(text);
     const result = usable ? keys : null;
@@ -1506,7 +1570,8 @@ export function analyzeJsSource(
     } else return null;
     if (!ts.isIdentifier(target)) return null;
     const object = soleConstObject(target);
-    if (!object) return null;
+    // Aliased, passed to a function or otherwise written elsewhere: the literal may not be the value.
+    if (!object || escapesAsSubject(target.text)) return null;
     const found = objectKeysOf(unwrap(object) as ts.ObjectLiteralExpression)?.get(key) ?? null;
     return found ? { value: found, path: `${target.text}.${key}` } : null;
   };
@@ -1744,16 +1809,19 @@ export function analyzeJsSource(
       object = named ? unwrap(named) : null;
     }
     if (!object || !ts.isObjectLiteralExpression(object)) return undefined;
+    // A later duplicate key replaces an earlier one; a spread may replace it too (unknown).
+    let found: ts.Expression | undefined;
     for (const property of object.properties) {
-      if (ts.isPropertyAssignment(property)) {
+      if (ts.isSpreadAssignment(property)) found = undefined;
+      else if (ts.isPropertyAssignment(property)) {
         const name = property.name;
         if ((ts.isIdentifier(name) || ts.isStringLiteralLike(name)) && name.text === key)
-          return property.initializer;
+          found = property.initializer;
       } else if (ts.isShorthandPropertyAssignment(property) && property.name.text === key) {
-        return property.name;
+        found = property.name;
       }
     }
-    return undefined;
+    return found;
   };
   /** Whether `expression` is passport-jwt's `Strategy`: named, namespaced or `require(...).Strategy`. */
   const isPassportJwtStrategy = (expression: ts.Expression): boolean => {

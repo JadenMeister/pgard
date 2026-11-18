@@ -111,6 +111,8 @@ function parseSignature(signature: string): {
   declares: string[];
   params: (string | null)[];
   results: string[];
+  receiver: string | null;
+  receiverType: string | null;
   funcName: string | null;
   nameOffset: number;
 } {
@@ -146,9 +148,16 @@ function parseSignature(signature: string): {
   const results = parseParameterList(groups[paramsIndex + 1] ?? "").filter(
     (name): name is string => name !== null && name !== "_",
   );
+  const receiverGroup = method ? (groups[0] ?? "") : "";
+  const receiverName = method ? (parseParameterList(receiverGroup)[0] ?? null) : null;
+  const receiverType = method
+    ? (/([A-Za-z_]\w*)\s*(?:\[[^\]]*\])?\s*$/.exec(receiverGroup)?.[1] ?? null)
+    : null;
   return {
     declares,
     results,
+    receiver: receiverName === "_" ? null : receiverName,
+    receiverType,
     params: named ? parseParameterList(groups[paramsIndex] ?? "") : [],
     funcName: named?.[2] ?? null,
     nameOffset: named ? (named[1] ?? "").length : 0,
@@ -221,6 +230,9 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
     params: (string | null)[];
     /** Named results (a bare `return` returns them). */
     results: string[];
+    /** Receiver name and type name of a method. */
+    receiver: string | null;
+    receiverType: string | null;
     /** Name of a declared function or method; null for a function literal. */
     funcName: string | null;
     /** Offset of that name in the code. */
@@ -315,6 +327,8 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
           declares: parsed.declares,
           params: parsed.params,
           results: parsed.results,
+          receiver: parsed.receiver,
+          receiverType: parsed.receiverType,
           funcName: parsed.funcName,
           nameOffset: at + 4 + parsed.nameOffset,
         });
@@ -554,17 +568,74 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
     }
   }
   const declarationNames = new Set(functionSpans.map((span) => span.nameOffset));
-  const callSites: { offset: number; name: string; args: string[] }[] = [];
+  /** Struct type names a variable is built from in this file: `s := Store{...}`, `s := &Store{...}`. */
+  const typesOfName = new Map<string, Set<string>>();
+  for (const assignment of assignments) {
+    const built = /^[&*]?\s*([A-Za-z_]\w*)\s*\{|^new\(\s*([A-Za-z_]\w*)\s*\)/.exec(
+      assignment.value.trim(),
+    );
+    const typeName = built?.[1] ?? built?.[2];
+    if (!typeName) continue;
+    for (const raw of assignment.names.split(",")) {
+      const name = raw.trim();
+      if (!IDENTIFIER.test(name)) continue;
+      const set = typesOfName.get(name) ?? new Set<string>();
+      set.add(typeName);
+      typesOfName.set(name, set);
+    }
+  }
+  /** The receiver expression of a method call at `offset` (`s` in `s.read(`), up to 4000 chars. */
+  const receiverOf = (offset: number): string | null => {
+    let index = offset - 1;
+    while (index >= 0 && (code[index] === " " || code[index] === "\t")) index -= 1;
+    if (code[index] !== ".") return null;
+    const end = index;
+    index -= 1;
+    while (index >= 0 && end - index < 4000) {
+      const char = code[index] as string;
+      if (char === ")" || char === "]" || char === "}") {
+        const open = char === ")" ? "(" : char === "]" ? "[" : "{";
+        let depth = 0;
+        for (; index >= 0 && end - index < 4000; index -= 1) {
+          if (code[index] === char) depth += 1;
+          else if (code[index] === open && (depth -= 1) === 0) break;
+        }
+        index -= 1;
+      } else if (/[\w.\s&*]/.test(char) && char !== "\n") index -= 1;
+      else break;
+    }
+    const text = code.slice(index + 1, end).trim();
+    return text === "" ? null : text;
+  };
+  const callSites: {
+    offset: number;
+    name: string;
+    args: string[];
+    receiver: string | null;
+    receiverTypes: Set<string> | null;
+  }[] = [];
   if (spansByName.size > 0) {
     for (const match of code.matchAll(/(?<![\w])([A-Za-z_]\w*)[ \t]*\(/g)) {
       const name = match[1] ?? "";
       const offset = match.index ?? 0;
       if (!spansByName.has(name) || declarationNames.has(offset)) continue;
       const open = offset + match[0].length - 1;
+      const receiver = receiverOf(offset);
+      let receiverTypes: Set<string> | null = null;
+      if (receiver !== null) {
+        const built = /^[&*]?\s*([A-Za-z_]\w*)\s*\{/.exec(receiver);
+        receiverTypes = built?.[1]
+          ? new Set([built[1]])
+          : IDENTIFIER.test(receiver)
+            ? (typesOfName.get(receiver) ?? null)
+            : null;
+      }
       callSites.push({
         offset,
         name,
         args: readCallArguments(code, open, MAX_CALL_ARGUMENT_CHARS).args,
+        receiver,
+        receiverTypes,
       });
     }
   }
@@ -573,6 +644,16 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
     returns.push({ offset: match.index ?? 0, expression: match[1] ?? "" });
   // Passes run until nothing new is tainted (a chain of calls declared in any order), bounded by
   // the number of functions; a file that does not settle in time falls back to name-only taint.
+  // `x.field = <request input>` taints `x` (the struct a method may later read).
+  const fieldAssignments: { root: string; value: string; offset: number }[] = [];
+  for (const match of code.matchAll(
+    /^[ \t]*([A-Za-z_]\w*)\.[A-Za-z_][\w.]*[ \t]*=(?!=)[ \t]*([^\n]+)/gm,
+  ))
+    fieldAssignments.push({
+      root: match[1] ?? "",
+      value: match[2] ?? "",
+      offset: match.index ?? 0,
+    });
   const maxPasses = Math.min(functionSpans.length + 3, 200);
   let changed = true;
   let passes = 0;
@@ -590,11 +671,13 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
         .filter((name) => IDENTIFIER.test(name) && name !== "_" && name !== "err");
       const value = assignment.value;
       for (const name of names) {
-        if (
-          isTaintedExpr(value, assignment.offset) &&
-          markTainted(name, declaringScope(name, assignment.offset))
-        )
-          changed = true;
+        if (isTaintedExpr(value, assignment.offset)) {
+          if (markTainted(name, declaringScope(name, assignment.offset))) changed = true;
+          // A package variable assigned in a function that also declares an unrelated inner
+          // variable of that name stays tainted for the whole package.
+          if (assignment.op === "=" && declaredIn.get(-1)?.has(name) && markTainted(name, -1))
+            changed = true;
+        }
         // A constant `q += " AND x"` keeps the string static.
         if (
           (assignment.op === "+=" && !LITERAL_PATTERN.test(value.trim())) ||
@@ -602,6 +685,33 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
         ) {
           dynamic.add(name);
         }
+      }
+    }
+    for (const field of fieldAssignments)
+      if (
+        isTaintedExpr(field.value, field.offset) &&
+        markTainted(field.root, declaringScope(field.root, field.offset))
+      )
+        changed = true;
+    // Receivers that are tainted at a call, per method name: by receiver type when it is known,
+    // else for every method of that name (applied once per method).
+    const taintedReceivers = new Map<string, Set<string>>();
+    for (const site of callSites) {
+      if (site.receiver === null || !isTaintedExpr(site.receiver, site.offset)) continue;
+      const set = taintedReceivers.get(site.name) ?? new Set<string>();
+      if (site.receiverTypes === null) set.add("*");
+      else for (const typeName of site.receiverTypes) set.add(typeName);
+      taintedReceivers.set(site.name, set);
+    }
+    for (const [name, types] of taintedReceivers) {
+      const targets = spansByName.get(name) ?? [];
+      const typed = (target: number) =>
+        types.has("*") || types.has((functionSpans[target] as FunctionSpan).receiverType ?? "");
+      // A receiver type with no such method here (embedded, promoted) falls back to every method.
+      const chosen = targets.some(typed) ? targets.filter(typed) : targets;
+      for (const target of chosen) {
+        const receiver = (functionSpans[target] as FunctionSpan).receiver;
+        if (receiver && markTainted(receiver, target)) changed = true;
       }
     }
     // Positions that receive a tainted argument, per callee name (applied once per target).
@@ -1001,10 +1111,11 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
   // A package-level `const`/`var` bound once, to a literal, and never written, taken by address or
   // indexed: `var signingKey = []byte("...")`. A `var` can still be overwritten from another file
   // of the package (an init() reading the environment), so it is reported at medium confidence.
-  // A package `var` with an empty initializer is a placeholder another file of the package normally
-  // fills in at start-up (`jwtKey = []byte(os.Getenv(...))`); it cannot be proven constant, so it is
-  // reported low. An empty literal or constant used directly as the key stays a high finding.
-  type PackageKey = "const" | "var" | "empty-var" | null;
+  // A package `var` with an empty initializer that this file assigns elsewhere (`init()` reading the
+  // environment) cannot be proven constant, so it is reported low. An empty var that is never
+  // assigned (in this file; another file of the package cannot be seen), an empty literal and an
+  // empty constant used as the key stay high findings.
+  type PackageKey = "const" | "var" | "assigned-empty-var" | null;
   const packageKeyCache = new Map<string, PackageKey>();
   const packageKey = (name: string): PackageKey => {
     if (!IDENTIFIER.test(name)) return null;
@@ -1038,19 +1149,16 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
       const redeclared = new RegExp(`\\bvar[ \\t]+(?:\\([^)]*)?(?<![\\w.])${escaped}\\b`, "g");
       const inSignature = new RegExp(`\\bfunc\\b[^\\n{]*(?<![\\w.])${escaped}\\b`);
       const mutated = new RegExp(`&${escaped}\\b|(?<![\\w.])${escaped}\\[|\\bcopy\\(${escaped}\\b`);
+      const emptyVar =
+        keyword !== "const" && literals[Number(only[2] ?? only[3])] === "" && writes > 1;
       if (
         depth === 0 &&
-        writes === 1 &&
+        (writes === 1 || emptyVar) &&
         [...code.matchAll(redeclared)].length <= 1 &&
         !inSignature.test(code) &&
         !mutated.test(code)
       )
-        result =
-          keyword === "const"
-            ? "const"
-            : literals[Number(only[2] ?? only[3])] === ""
-              ? "empty-var"
-              : "var";
+        result = emptyVar ? "assigned-empty-var" : keyword === "const" ? "const" : "var";
     }
     packageKeyCache.set(name, result);
     return result;
@@ -1080,12 +1188,12 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
         report(
           "PG-CRYPTO-002",
           offset,
-          kind === "empty-var"
+          kind === "assigned-empty-var"
             ? {
                 severity: "low",
                 status: "suspected",
                 confidence: "low",
-                flow: `empty package variable ${held} used as ${name} key; it is normally set from another file at start-up (verify it is: an empty key signs with no secret)`,
+                flow: `package variable ${held} starts empty and is assigned elsewhere in this file, used as ${name} key (verify the assignment runs before it is used: an empty key signs with no secret)`,
               }
             : kind === "const"
               ? {

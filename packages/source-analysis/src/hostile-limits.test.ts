@@ -71,16 +71,23 @@ describe("stack limit (M3)", () => {
 });
 
 describe("stack limit on a deep route receiver chain (#302)", () => {
-  it("reports the file as not analyzed (partial), never as a clean result", async () => {
+  it("cuts the chain out, analyzes the rest of the file and reports it partial, never clean", async () => {
     const chain = `${"a.b.".repeat(20_000)}c.post('/login', (req, res) => res);\n`;
     const root = project({ "routes.js": chain, "ok.js": SQL_VULN });
     const output = await scanSourceCode(root, { analysisWorker: null });
     const entry = coverageOf(output, "source:javascript");
     expect(entry?.status).toBe("partial");
-    expect(entry?.note).toContain(
-      'nested too deeply to analyze (stack limit reached; not analyzed: "routes.js")',
-    );
+    expect(entry?.note).toContain("nested too deeply to follow (cut out)");
     expect(output.findings.some((finding) => finding.location.path === "ok.js")).toBe(true);
+  });
+
+  it("keeps a separate finding of a file whose expression chain is cut out", async () => {
+    const chain = `${"a.b.".repeat(20_000)}c.post('/login', (req, res) => res);\n`;
+    const file = `${SQL_VULN}const x = ${chain}`;
+    const root = project({ "mixed.js": file });
+    const output = await scanSourceCode(root, { analysisWorker: null });
+    expect(output.findings.some((finding) => finding.ruleId === "PG-SQL-001")).toBe(true);
+    expect(coverageOf(output, "source:javascript")?.status).toBe("partial");
   });
 });
 

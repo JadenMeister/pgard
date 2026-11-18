@@ -476,16 +476,23 @@ describe("empty key placeholders (#271)", () => {
       "main.go",
     ).findings;
 
-  it("reports a package var with an empty initializer only as low (it is filled in elsewhere)", () => {
-    const [placeholder] = sign('var jwtKey = []byte("")');
-    expect(placeholder).toMatchObject({
+  it("reports an empty package var as before (high, medium confidence) when nothing assigns it", () => {
+    const [empty] = sign('var jwtKey = []byte("")');
+    expect(empty).toMatchObject({
       ruleId: "PG-CRYPTO-002",
-      severity: "low",
-      confidence: "low",
+      severity: "high",
+      confidence: "medium",
       status: "suspected",
     });
-    expect(placeholder?.evidence).toContain("empty package variable jwtKey");
-    expect(sign('var (\n\tjwtKey = []byte("")\n)')[0]).toMatchObject({ severity: "low" });
+    expect(sign('var (\n\tjwtKey = []byte("")\n)')[0]).toMatchObject({ severity: "high" });
+  });
+
+  it("reports an empty package var that this file assigns elsewhere only as low", () => {
+    const [assigned] = sign('var jwtKey = []byte("")\nfunc init() { jwtKey = load() }');
+    expect(assigned).toMatchObject({ severity: "low", confidence: "low", status: "suspected" });
+    expect(assigned?.evidence).toContain("assigned elsewhere in this file");
+    // A non-empty var assigned elsewhere is not a constant: still no finding.
+    expect(sign('var jwtKey = []byte("x")\nfunc init() { jwtKey = load() }')).toEqual([]);
   });
 
   it("keeps an empty literal or constant used as the key a high finding", () => {
@@ -497,13 +504,10 @@ describe("empty key placeholders (#271)", () => {
       severity: "high",
       confidence: "high",
     });
-    // A non-empty package var is unchanged: high at medium confidence.
     expect(sign('var jwtKey = []byte("not-empty-secret")')[0]).toMatchObject({
       severity: "high",
       confidence: "medium",
     });
-    // Assigned in the same file: not a placeholder this file can judge, still no finding.
-    expect(sign('var jwtKey = []byte("")\nfunc init() { jwtKey = load() }')).toEqual([]);
   });
 });
 
@@ -794,5 +798,98 @@ func h(c *gin.Context) {
     // Four times the methods and calls: linear is about 4x, every call against every method 16x.
     expect(large / Math.max(small, 1)).toBeLessThan(10);
     expect(large).toBeLessThan(10_000 * TIME_FACTOR);
+  });
+});
+
+describe("Go taint through struct fields and receivers (#298 review)", () => {
+  const imports = ["net/http", "os", "database/sql", "github.com/gin-gonic/gin"];
+  const rules = (body: string, rule = "PG-PATH-001") =>
+    analyzeGoSource(go(imports, body), "main.go").findings.filter((f) => f.ruleId === rule);
+
+  it("follows a struct built from request input into a method that reads the field", () => {
+    const body = `type Store struct{ file string }
+
+func (s Store) read() { os.ReadFile(s.file) }
+
+func h(r *http.Request) {
+	s := Store{file: r.FormValue("file")}
+	s.read()
+}`;
+    expect(rules(body)).toHaveLength(1);
+    // Constant field: quiet.
+    expect(rules(body.replace('r.FormValue("file")', '"a.txt"'))).toEqual([]);
+    // A literal receiver and a pointer receiver.
+    expect(
+      rules(`type Store struct{ file string }
+func (s *Store) read() { os.ReadFile(s.file) }
+func h(r *http.Request) {
+	(&Store{file: r.FormValue("file")}).read()
+}`),
+    ).toHaveLength(1);
+    // A field set after construction.
+    expect(
+      rules(`type Store struct{ file string }
+func (s *Store) read() { os.ReadFile(s.file) }
+func h(r *http.Request) {
+	s := &Store{}
+	s.file = r.FormValue("file")
+	s.read()
+}`),
+    ).toHaveLength(1);
+  });
+
+  it("does not taint another type's method of the same name when the receiver type is known", () => {
+    const body = `type A struct{ file string }
+type B struct{ file string }
+
+func (a A) read() { os.ReadFile(a.file) }
+func (b B) read() { os.ReadFile(b.file) }
+
+func h(r *http.Request) {
+	b := B{file: r.FormValue("file")}
+	b.read()
+}`;
+    const found = rules(body);
+    expect(found).toHaveLength(1);
+    // Only B.read: the finding is on the line of `os.ReadFile(b.file)`.
+    const text = go(imports, body).split("\n");
+    expect(text[(found[0]?.line ?? 1) - 1]).toContain("b.file");
+  });
+
+  it("follows a receiver through a named return and an aliased method value", () => {
+    expect(
+      rules(`type Store struct{ file string }
+func (s Store) path() (p string) { p = s.file; return }
+func h(r *http.Request) {
+	s := Store{file: r.FormValue("file")}
+	os.ReadFile(s.path())
+}`),
+    ).toHaveLength(1);
+    expect(
+      rules(`type Store struct{ file string }
+func (s Store) read() { os.ReadFile(s.file) }
+func h(r *http.Request) {
+	s := Store{file: r.FormValue("file")}
+	f := s.read
+	f()
+}`),
+    ).toHaveLength(1);
+  });
+
+  it("keeps a package variable tainted when a function also declares an inner variable of that name", () => {
+    const body = `var file string
+
+func set(c *gin.Context) {
+	file = c.Query("f")
+	{
+		file := "unrelated.txt"
+		_ = file
+	}
+}
+
+func read(c *gin.Context) {
+	os.ReadFile(file)
+}`;
+    expect(rules(body)).toHaveLength(1);
   });
 });
