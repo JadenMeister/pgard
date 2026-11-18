@@ -265,6 +265,13 @@ export const COVERAGE_NOTE_CATALOG: Readonly<Record<string, CatalogEntry>> = {
     () =>
       "CSRF와 무차별 대입 검사는 프로젝트 수준 휴리스틱(라이브러리 import와 라우트 이름)이며, 의심되는 항목을 낮은 신뢰도로 보고합니다. JavaScript, TypeScript 또는 Vue 영역이 일부만 검사되어 부분 결과입니다.",
   ),
+  heuristics_routes_unrecognized: entry(
+    { count: "count" },
+    (p) =>
+      `${p.count} route registration(s) on receivers that are not known routers (for example a router imported from another module) were not checked, so a missing CSRF or brute-force finding there is not a safe result. ${p.count === 1 ? "It was" : "They were"} counted only.`,
+    (p) =>
+      `알려진 라우터로 확인되지 않은 대상(예: 다른 모듈에서 가져온 라우터)에 등록된 라우트 ${p.count}개는 검사하지 못했습니다. 따라서 그곳에 CSRF나 무차별 대입 결과가 없다고 해서 안전하다는 뜻은 아닙니다. 개수만 세었습니다.`,
+  ),
   heuristics_not_run: entry(
     none,
     () =>

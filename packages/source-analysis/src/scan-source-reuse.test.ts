@@ -63,7 +63,8 @@ describe("scanSourceCode with results of an earlier scan", () => {
     writeFileSync(path.join(root, "guard.js"), "import csrf from 'csurf';\nexport default csrf;\n");
     const second = await scanSourceCode(root, { reuse: reuseOf(first.fileCache) });
     expect(second.reuse).toEqual({ rescanned: 1, reused: 1 });
-    expect(second.findings.map((f) => f.ruleId)).not.toContain("PG-CSRF-001");
+    // The import only demotes the finding: no middleware is applied to the route.
+    expect(second.findings.find((f) => f.ruleId === "PG-CSRF-001")?.severity).toBe("low");
   });
 
   it("does not trust an entry whose facts have the wrong shape", async () => {

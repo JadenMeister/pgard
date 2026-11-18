@@ -283,6 +283,9 @@ describe("PG-XSS-001/002 HTML sinks", () => {
     ).toEqual([]);
   });
 
+  // A browser-global `DOMPurify` with no import is deliberately not trusted (#302): the name
+  // alone does not show that the real library is loaded, so the finding stays. Documented in the
+  // README ("Known limits").
   it.each([
     ["const clean = DOMPurify.sanitize(req.body.html);\nel.innerHTML = clean;"],
     ["export {};\nlet html;\nhtml = DOMPurify.sanitize(input);\nel.innerHTML = html;"],
@@ -1335,7 +1338,7 @@ describe("facts and robustness", () => {
       "src/server.js",
     );
     expect(facts.imports).toContain("express");
-    expect(facts.authRoutes).toEqual([{ line: 1, routePath: "/login" }]);
+    expect(facts.authRoutes).toEqual([{ line: 1, routePath: "/login", limited: false }]);
     expect(facts.stateChangingRoutes).toHaveLength(1);
     expect(facts.preflightRoutes).toHaveLength(1);
     // A session-like cookie set by hand counts as a cookie session; other cookies do not.

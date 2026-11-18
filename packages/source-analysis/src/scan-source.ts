@@ -30,6 +30,7 @@ import {
 } from "./file-worker.js";
 import { createSourceFinding, type RawSourceFinding } from "./finding-factory.js";
 import type { JsFileFacts } from "./js/analyze-js.js";
+import { CSRF_MODULES, RATE_LIMIT_MODULES } from "./js/protection-modules.js";
 import { GO_RULE_IDS, JS_RULE_IDS, VUE_RULE_IDS } from "./rules.js";
 import { scanJvm, isJvmWalk, JVM_LANGUAGES } from "./jvm/scan-jvm.js";
 import { scanPhp } from "./php/scan-php.js";
@@ -93,27 +94,6 @@ export interface SourceScanOutput extends AnalyzerOutput {
   reuse: { rescanned: number; reused: number };
 }
 
-const CSRF_MODULES = [
-  "csurf",
-  "csrf-csrf",
-  "csrf-sync",
-  "lusca",
-  "tiny-csrf",
-  "@fastify/csrf-protection",
-  "@nestjs/csrf",
-  "csrf",
-];
-const RATE_LIMIT_MODULES = [
-  "express-rate-limit",
-  "rate-limiter-flexible",
-  "express-brute",
-  "express-slow-down",
-  "@nestjs/throttler",
-  "@fastify/rate-limit",
-  "limiter",
-  "bottleneck",
-  "hono-rate-limiter",
-];
 const JS_UNSUPPORTED_ORMS: Record<string, string> = {
   typeorm: "TypeORM",
   sequelize: "Sequelize",
@@ -418,6 +398,9 @@ function hasUsableFacts(entry: CachedSourceFile): boolean {
     facts.imports.every((item: unknown) => typeof item === "string") &&
     isNumberList(facts.stateChangingRoutes) &&
     isNumberList(facts.preflightRoutes) &&
+    isNumberList(facts.csrfUncoveredPost) &&
+    isNumberList(facts.csrfUncoveredPreflight) &&
+    typeof facts.unrecognizedRoutes === "number" &&
     (facts.preflightExposure === null ||
       facts.preflightExposure === "permissive" ||
       facts.preflightExposure === "unknown") &&
@@ -430,7 +413,8 @@ function hasUsableFacts(entry: CachedSourceFile): boolean {
         typeof route === "object" &&
         route !== null &&
         typeof (route as { line?: unknown }).line === "number" &&
-        typeof (route as { routePath?: unknown }).routePath === "string",
+        typeof (route as { routePath?: unknown }).routePath === "string" &&
+        typeof (route as { limited?: unknown }).limited === "boolean",
     )
   );
 }
@@ -647,20 +631,43 @@ export async function scanSourceCode(
       cause: "csrf-project",
     });
   }
-  if (!hasRateLimiter) {
-    for (const entry of jsFacts) {
-      for (const route of entry.facts.authRoutes.slice(0, 5)) {
-        projectFindings.push({
-          ruleId: "PG-BRUTE-001",
-          path: entry.path,
-          line: route.line,
-          severity: "medium",
-          status: "suspected",
-          confidence: "low",
-          evidence: `POST ${route.routePath.slice(0, 80)} with no rate-limiting library found in the project (a proxy or gateway may still limit it)`,
-          cause: `brute:${route.routePath}`,
-        });
-      }
+  if (usesCookieSession && hasCsrfProtection) {
+    // A CSRF library is imported somewhere. A route it is visibly applied to stays silent; any
+    // other route is demoted (low severity), not hidden: the import may protect a different app.
+    const uncoveredOf = (facts: JsFileFacts) => [
+      ...facts.csrfUncoveredPost,
+      ...(preflightExposure ? facts.csrfUncoveredPreflight : []),
+    ];
+    const firstUncovered = jsFacts.find((entry) => uncoveredOf(entry.facts).length > 0);
+    if (firstUncovered) {
+      projectFindings.push({
+        ruleId: "PG-CSRF-001",
+        path: firstUncovered.path,
+        line: Math.min(...uncoveredOf(firstUncovered.facts)),
+        severity: "low",
+        status: "suspected",
+        confidence: "low",
+        evidence:
+          "cookie-based session + state-changing route; a CSRF library is imported elsewhere in the project, but no CSRF middleware is visibly applied to this route or its router (use/register or a route argument); it may be applied elsewhere",
+        cause: "csrf-project-unapplied",
+      });
+    }
+  }
+  for (const entry of jsFacts) {
+    const routes = entry.facts.authRoutes.filter((route) => !hasRateLimiter || !route.limited);
+    for (const route of routes.slice(0, 5)) {
+      projectFindings.push({
+        ruleId: "PG-BRUTE-001",
+        path: entry.path,
+        line: route.line,
+        severity: hasRateLimiter ? "low" : "medium",
+        status: "suspected",
+        confidence: "low",
+        evidence: hasRateLimiter
+          ? `POST ${route.routePath.slice(0, 80)}: a rate-limiting library is imported elsewhere in the project, but no limiter is visibly applied to this route or its router (it may be applied elsewhere)`
+          : `POST ${route.routePath.slice(0, 80)} with no rate-limiting library found in the project (a proxy or gateway may still limit it)`,
+        cause: `brute:${route.routePath}`,
+      });
     }
   }
 
@@ -1018,17 +1025,26 @@ export async function scanSourceCode(
     (entry) => jsFamilyAreas.includes(entry.area) && entry.status === "partial",
   );
   const hasHeuristicsInput = jsFacts.length > 0;
+  // Route registrations on receivers that are not known routers were not checked: partial, with
+  // counts only. "Not understood" is never reported as "safe".
+  const unrecognizedRoutes = jsFacts.reduce(
+    (sum, entry) => sum + entry.facts.unrecognizedRoutes,
+    0,
+  );
   const heuristicsEntry: Coverage = {
     area: "source:heuristics",
     scope: "code",
-    status: isJsFamilyPartial ? "partial" : "completed",
+    status: isJsFamilyPartial || unrecognizedRoutes > 0 ? "partial" : "completed",
     ruleIds: hasHeuristicsInput ? ["PG-CSRF-001", "PG-BRUTE-001"] : [],
     ...coverageNote(
       hasHeuristicsInput
-        ? isJsFamilyPartial
-          ? "heuristics_ran_partial"
-          : "heuristics_ran"
+        ? unrecognizedRoutes > 0
+          ? "heuristics_routes_unrecognized"
+          : isJsFamilyPartial
+            ? "heuristics_ran_partial"
+            : "heuristics_ran"
         : "heuristics_not_run",
+      unrecognizedRoutes > 0 && hasHeuristicsInput ? { count: unrecognizedRoutes } : undefined,
     ),
   };
   coverage.push(heuristicsEntry);

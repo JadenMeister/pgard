@@ -6,6 +6,7 @@ import {
   NOT_A_CRYPTO_KEY_CONTEXT,
   PASSWORD_PROPERTY,
 } from "./jvm/crypto-rules.js";
+import { analyzeJsSource } from "./js/analyze-js.js";
 import { withoutTypeArguments } from "./jvm/kotlin-ir.js";
 import {
   analyzeJsp,
@@ -281,4 +282,16 @@ describe("JVM configuration key patterns (#350)", () => {
       expect(ms).toBeLessThan(LIMIT_MS);
     });
   }
+});
+
+describe("JavaScript route and protection detection (#302)", () => {
+  it("stays bounded on many route registrations and a long middleware chain", () => {
+    const routes = Array.from({ length: 5_000 }, (_, i) => `x${i}.post('/p${i}', (a, b) => a);`);
+    const chain = `app.post('/login', ${Array.from({ length: 5_000 }, () => "limiter").join(", ")}, h);`;
+    const code = `import rateLimit from 'express-rate-limit';\nconst limiter = rateLimit();\n${routes.join("\n")}\n${"a.b.".repeat(2_000)}c.post('/x', () => 1);\n${chain}\n`;
+    const { value, ms } = timed(() => analyzeJsSource(code, "a.js"));
+    expect(ms).toBeLessThan(LIMIT_MS * 4);
+    expect(value.facts.unrecognizedRoutes).toBe(5_001);
+    expect(value.facts.authRoutes).toEqual([{ line: 5_004, routePath: "/login", limited: true }]);
+  });
 });
