@@ -135,6 +135,8 @@ export interface TaintOptions {
   htmlEscapersClean?: boolean;
   /** Local names of `escape`/`escapeId` imported from a SQL-escaping module: `escape(x)` cleans. */
   sqlEscapeFunctions?: ReadonlySet<string>;
+  /** Local names of file-name sanitizers (`sanitize-filename`): their calls clean a path only. */
+  pathCleanFunctions?: ReadonlySet<string>;
   /** Local names bound to a SQL-escaping module (`sqlstring`, `mysql`): `mysql.escape(x)` cleans. */
   sqlEscapeModules?: ReadonlySet<string>;
 }
@@ -144,6 +146,7 @@ export class TaintTracker {
   readonly uncleanCalls = new Set<ts.Node>();
   private readonly htmlEscapersClean: boolean;
   private readonly sqlEscapeFunctions: ReadonlySet<string>;
+  private readonly pathCleanFunctions: ReadonlySet<string>;
   private readonly sqlEscapeModules: ReadonlySet<string>;
   private readonly taintedVariables = new Map<string, TaintKind>();
   private readonly dynamicStringVariables = new Set<string>();
@@ -153,6 +156,7 @@ export class TaintTracker {
   constructor(sourceFile: ts.SourceFile, options: TaintOptions = {}) {
     this.htmlEscapersClean = options.htmlEscapersClean ?? false;
     this.sqlEscapeFunctions = options.sqlEscapeFunctions ?? new Set();
+    this.pathCleanFunctions = options.pathCleanFunctions ?? new Set();
     this.sqlEscapeModules = options.sqlEscapeModules ?? new Set();
     // Two passes so `const a = req.body; const b = a.x;` propagates regardless of order.
     for (let pass = 0; pass < 2; pass += 1) {
@@ -312,6 +316,7 @@ export class TaintTracker {
     }
     const callee = unwrap(call.expression);
     if (ts.isIdentifier(callee) && this.sqlEscapeFunctions.has(callee.text)) return true;
+    if (ts.isIdentifier(callee) && this.pathCleanFunctions.has(callee.text)) return true;
     return this.htmlEscapersClean && HTML_ESCAPERS.has(name) && !this.uncleanCalls.has(call);
   }
 

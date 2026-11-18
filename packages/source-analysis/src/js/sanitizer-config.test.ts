@@ -391,6 +391,78 @@ describe("file-name sanitizers clean a path (#278 review)", () => {
   });
 });
 
+describe("file-name sanitizers clean only the path rule (#278 re-review)", () => {
+  const imp = "import sf from 'sanitize-filename';\n";
+  const withoutImport = (code: string) => code.replace(imp, "");
+  const same = (rule: string, code: string) => {
+    const a = find(code, rule);
+    const b = find(withoutImport(code).replace(/sf\(/g, "String("), rule);
+    expect(a.length).toBeGreaterThan(0);
+    expect(a.map((f) => [f.severity, f.confidence])).toEqual(
+      b.map((f) => [f.severity, f.confidence]),
+    );
+  };
+
+  it("rates a command, SQL and SSRF sink as if the call were any other function", () => {
+    same(
+      "PG-CMD-001",
+      `${imp}import { exec } from 'child_process';\napp.get('/c', (req) => { exec('convert ' + sf(req.query.f)); });`,
+    );
+    same(
+      "PG-SQL-001",
+      `${imp}import { Pool } from 'pg';\nconst db = new Pool();\napp.get('/q', async (req) => { await db.query("SELECT * FROM t WHERE n='" + sf(req.query.x) + "'"); });`,
+    );
+    same(
+      "PG-SSRF-001",
+      `${imp}import axios from 'axios';\napp.get('/s', (req) => { axios.get('http://' + sf(req.query.x)); });`,
+    );
+  });
+
+  it("keeps a variable holding the cleaned name clean for the path rule only", () => {
+    expect(
+      find(
+        `${imp}app.get('/f', (req, res) => { const n = sf(req.params.name); res.sendFile('/srv/' + n); });`,
+        "PG-PATH-001",
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("config reading edge cases (#278 re-review)", () => {
+  const hook = (condition: string) =>
+    xss(
+      `${DOMPURIFY}DOMPurify.addHook('uponSanitizeAttribute', (n, data) => { if (${condition}) { n.setAttribute('x', 'y'); } });\nel.innerHTML = DOMPurify.sanitize(location.hash);`,
+    );
+
+  it("does not take an assignment or comma in a hook condition as benign", () => {
+    expect(hook("data.attrName === 'x'")).toEqual([]);
+    expect(hook("data.forceKeepAttr = 1")[0]?.confidence).toBe("low");
+    expect(hook("data.allowedTags.script = 1")[0]?.confidence).toBe("low");
+    expect(hook("(data.k |= 1)")[0]?.confidence).toBe("low");
+    expect(hook("(track(), true)")[0]?.confidence).toBe("low");
+    expect(hook("++data.n")[0]?.confidence).toBe("low");
+  });
+
+  it("does not trust a const options object changed through a nested mutating call", () => {
+    const base = `${DOMPURIFY}const cfg = { ADD_TAGS: ['b'] };\n`;
+    expect(xss(`${base}el.innerHTML = DOMPurify.sanitize(location.hash, cfg);`)).toEqual([]);
+    expect(
+      xss(
+        `${base}cfg.ADD_TAGS.push('script');\nel.innerHTML = DOMPurify.sanitize(location.hash, cfg);`,
+      )[0]?.confidence,
+    ).toBe("low");
+  });
+
+  it("takes only the sanitize-html import's own defaults as the safe base", () => {
+    const own = `${SANITIZE_HTML}el.innerHTML = sanitizeHtml(location.hash, { allowedTags: [...sanitizeHtml.defaults.allowedTags, 'img'] });`;
+    expect(xss(own)).toEqual([]);
+    const renamed = `import clean from 'sanitize-html';\nel.innerHTML = clean(location.hash, { allowedTags: clean.defaults.allowedTags.concat(['img']) });`;
+    expect(xss(renamed)).toEqual([]);
+    const other = `${SANITIZE_HTML}el.innerHTML = sanitizeHtml(location.hash, { allowedTags: [...someLib.defaults.allowedTags, 'img'] });`;
+    expect(xss(other)[0]?.confidence).toBe("low");
+  });
+});
+
 describe("new patterns stay linear and bounded (#278)", () => {
   it("reads a huge options object, many hooks and a long attribute prefix quickly", () => {
     const options = `{ ${Array.from({ length: 5000 }, (_, i) => `K${i}: ${i}`).join(", ")} }`;

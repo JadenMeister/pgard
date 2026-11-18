@@ -354,13 +354,14 @@ export function analyzeJsSource(
   // SQL-escaping modules: their `escape`/`escapeId` clean a value for the SQL, command and path
   // rules. HTML escapers and sanitizer-named calls clean only for the XSS view (`htmlTaint`).
   const sqlEscapeFunctions = new Set<string>();
+  const pathCleanFunctions = new Set<string>();
   const sqlEscapeModules = new Set<string>();
   for (const [local, module] of namespaceImports)
     if (SQL_ESCAPE_MODULES.has(module)) sqlEscapeModules.add(local);
-    else if (FILENAME_SANITIZER_MODULES.has(module)) sqlEscapeFunctions.add(local);
+    else if (FILENAME_SANITIZER_MODULES.has(module)) pathCleanFunctions.add(local);
   for (const [local, bound] of namedImports) {
     const at = bound.lastIndexOf(":");
-    if (bound === "filenamify:filenamify") sqlEscapeFunctions.add(local);
+    if (bound === "filenamify:filenamify") pathCleanFunctions.add(local);
     if (
       SQL_ESCAPE_MODULES.has(bound.slice(0, at)) &&
       /^(escape|escapeId)$/.test(bound.slice(at + 1))
@@ -368,6 +369,12 @@ export function analyzeJsSource(
       sqlEscapeFunctions.add(local);
   }
   const taint = new TaintTracker(sourceFile, { sqlEscapeFunctions, sqlEscapeModules });
+  // The path rule alone also trusts a file-name sanitizer; command, SQL, SSRF and XSS do not.
+  const pathTaint = new TaintTracker(sourceFile, {
+    sqlEscapeFunctions,
+    sqlEscapeModules,
+    pathCleanFunctions,
+  });
   const htmlTaint = new TaintTracker(sourceFile, {
     htmlEscapersClean: true,
     sqlEscapeFunctions,
@@ -525,7 +532,8 @@ export function analyzeJsSource(
   };
   /** A sole-binding `const x = { ... }` an options argument names. */
   const soleConstObject = (identifier: ts.Identifier): ts.Expression | null => {
-    if (memberWrittenRoots.has(identifier.text)) return null;
+    // Written through a member, `Object.assign`, or a mutating call such as `cfg.ADD_TAGS.push(...)`.
+    if (memberWrittenRoots.has(identifier.text) || mutatedRoots.has(identifier.text)) return null;
     const init = soleConst(identifier.text, identifier);
     return init && ts.isObjectLiteralExpression(unwrap(init)) ? init : null;
   };
@@ -538,8 +546,13 @@ export function analyzeJsSource(
     const module = sanitizerModuleOf(expression);
     if (module === null) return null;
     const node = unwrap(expression) as ts.CallExpression;
-    const own = unsafeSanitizerOptions(module, node.arguments[1], (identifier) =>
-      ts.isIdentifier(identifier) ? soleConstObject(identifier) : null,
+    const callee = unwrap(node.expression);
+    const alias = ts.isIdentifier(callee) ? callee.text : null;
+    const own = unsafeSanitizerOptions(
+      module,
+      node.arguments[1],
+      (identifier) => (ts.isIdentifier(identifier) ? soleConstObject(identifier) : null),
+      alias,
     );
     if (own !== null) return own;
     return isDomPurifyFamily(module) ? hookRisk() : null;
@@ -1310,7 +1323,7 @@ export function analyzeJsSource(
       ["sendFile", "download", "sendfile"].includes(name);
     if (!isFsRead && !isResponseFile) return;
     const first = call.arguments[0];
-    if (!first || taint.taintOf(first) !== "request") return;
+    if (!first || pathTaint.taintOf(first) !== "request") return;
     if (isResponseFile) {
       const options = call.arguments[1];
       if (
@@ -1342,6 +1355,7 @@ export function analyzeJsSource(
       { severity: "high", status: "suspected", confidence: "high" },
       null,
       `${isResponseFile ? "res" : "fs"}.${name}`,
+      pathTaint,
     );
     if (evidence)
       report(

@@ -56,6 +56,8 @@ interface ScriptSanitizers {
   constObjects: Map<string, ts.Expression>;
 }
 
+const MUTATING_METHODS =
+  /^(push|pop|shift|unshift|splice|sort|reverse|fill|copyWithin|add|set|delete|clear)$/;
 const OBJECT_WRITERS = new Set(["assign", "defineProperty", "defineProperties", "setPrototypeOf"]);
 
 /** Name written through a property or element, or handed to `Object.assign`-like writers. */
@@ -80,6 +82,15 @@ function memberWriteRoot(node: ts.Node): string | null {
   )
     return rootOf(node.left);
   if (ts.isDeleteExpression(node)) return rootOf(node.expression);
+  // `cfg.ADD_TAGS.push('script')`: a mutating call on a member of the object.
+  if (
+    ts.isCallExpression(node) &&
+    ts.isPropertyAccessExpression(node.expression) &&
+    MUTATING_METHODS.test(node.expression.name.text) &&
+    (ts.isPropertyAccessExpression(node.expression.expression) ||
+      ts.isElementAccessExpression(node.expression.expression))
+  )
+    return rootOf(node.expression.expression);
   if (
     ts.isCallExpression(node) &&
     ts.isPropertyAccessExpression(node.expression) &&
@@ -348,8 +359,11 @@ function sanitizerRootOf(
   );
   // The template cannot resolve a named options object, so it is read as not visible (risky).
   const risk =
-    unsafeSanitizerOptions(root.module, node.arguments[1], (e) =>
-      ts.isIdentifier(e) ? (constObjects.get(e.text) ?? null) : null,
+    unsafeSanitizerOptions(
+      root.module,
+      node.arguments[1],
+      (e) => (ts.isIdentifier(e) ? (constObjects.get(e.text) ?? null) : null),
+      receiver.text,
     ) ?? (isDomPurifyFamily(root.module) ? hookRisk : null);
   return {
     module: root.module,
@@ -419,7 +433,12 @@ function classifyVHtml(
     shadowed.size === 0
       ? scripts.roots
       : new Map([...scripts.roots].filter(([name]) => !shadowed.has(name)));
-  const root = sanitizerRootOf(trimmed, roots, scripts.hookRisk, scripts.constObjects);
+  // A local name that is also a script const object must not resolve to it.
+  const consts =
+    shadowed.size === 0
+      ? scripts.constObjects
+      : new Map([...scripts.constObjects].filter(([name]) => !shadowed.has(name)));
+  const root = sanitizerRootOf(trimmed, roots, scripts.hookRisk, consts);
   if (root?.proven) return null;
   const rootModule = root?.module ?? null;
   const finding = classifyUnsanitized(trimmed);
@@ -535,7 +554,9 @@ export function analyzeVueSource(code: string, path: string): VueAnalysis {
       let shadowed = outer;
       if (node.type === NODE_ELEMENT) {
         if (scripts.roots.size > 0) {
-          const hidden = [...localTemplateNames(node)].filter((name) => scripts.roots.has(name));
+          const hidden = [...localTemplateNames(node)].filter(
+            (name) => scripts.roots.has(name) || scripts.constObjects.has(name),
+          );
           if (hidden.length > 0) shadowed = new Set([...outer, ...hidden]);
         }
         for (const prop of node.props ?? []) {

@@ -175,4 +175,29 @@ describe("Vue script-setup options (#278 review)", () => {
       vue(plain, `${DOMPURIFY}\nDOMPurify.addHook('x', (n) => { track(n); });`)[0]?.confidence,
     ).toBe("low");
   });
+
+  it("does not trust a script const object changed by a nested mutating call", () => {
+    const options = "const opts = { ADD_TAGS: ['b'] };";
+    expect(withOptions(options)).toEqual([]);
+    expect(withOptions(`${options}\nopts.ADD_TAGS.push('script');`)[0]?.confidence).toBe("low");
+  });
+
+  it("does not resolve a v-for alias to a script const object of the same name", () => {
+    const script = `${DOMPURIFY}\nconst o = { ADD_ATTR: ['target'] };`;
+    const call = 'v-html="DOMPurify.sanitize(html, o)"';
+    expect(vue(`<div><b ${call}></b></div>`, script)).toEqual([]);
+    expect(
+      vue(`<div v-for="o in list" :key="o"><b ${call}></b></div>`, script)[0]?.confidence,
+    ).toBe("low");
+  });
+
+  it("takes only the sanitize-html import's own defaults as the safe base", () => {
+    const own =
+      "<div v-html=\"clean(html, { allowedTags: [...clean.defaults.allowedTags, 'img'] })\"></div>";
+    const other =
+      "<div v-html=\"clean(html, { allowedTags: [...x.defaults.allowedTags, 'img'] })\"></div>";
+    const script = 'import clean from "sanitize-html";';
+    expect(vue(own, script)).toEqual([]);
+    expect(vue(other, script)[0]?.confidence).toBe("low");
+  });
 });

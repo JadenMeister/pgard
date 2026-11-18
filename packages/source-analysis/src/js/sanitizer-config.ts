@@ -56,18 +56,24 @@ function isOff(node: ts.Expression): boolean {
 }
 
 /** `sanitizeHtml.defaults.allowedTags` and the like: the library's own safe base lists. */
-function isDefaultsList(node: ts.Expression): boolean {
+function isDefaultsList(node: ts.Expression, alias: string | null): boolean {
+  if (alias === null) return false;
+  if (!ts.isPropertyAccessExpression(node) || !/^allowed/.test(node.name.text)) return false;
+  const defaults = node.expression;
   return (
-    ts.isPropertyAccessExpression(node) &&
-    /^allowed/.test(node.name.text) &&
-    ts.isPropertyAccessExpression(node.expression) &&
-    node.expression.name.text === "defaults"
+    ts.isPropertyAccessExpression(defaults) &&
+    defaults.name.text === "defaults" &&
+    ts.isIdentifier(defaults.expression) &&
+    defaults.expression.text === alias
   );
 }
 
 interface Budget {
   left: number;
+  /** Local name of the sanitize-html import: only its `defaults` lists are the safe base. */
+  alias: string | null;
 }
+const newBudget = (alias: string | null): Budget => ({ left: MAX_LIST_NODES, alias });
 
 /**
  * Strings of a list, an object of lists (`allowedAttributes`) or a `{ name, values }` attribute
@@ -77,21 +83,21 @@ interface Budget {
 function stringsOf(
   expression: ts.Expression,
   resolve: ExpressionResolver | null,
-  budget: Budget = { left: MAX_LIST_NODES },
+  budget: Budget = newBudget(null),
   depth = 0,
 ): string[] | null {
   budget.left -= 1;
   if (budget.left < 0) return null;
   const node = resolved(expression, resolve);
   if (ts.isStringLiteralLike(node)) return [node.text];
-  if (isDefaultsList(node)) return [];
+  if (isDefaultsList(node, budget.alias)) return [];
   if (depth >= MAX_LIST_DEPTH) return null;
   if (ts.isArrayLiteralExpression(node)) {
     if (node.elements.length > MAX_ENTRIES) return null;
     const out: string[] = [];
     for (const element of node.elements) {
       if (ts.isSpreadElement(element)) {
-        if (isDefaultsList(skipWrappers(element.expression))) continue;
+        if (isDefaultsList(skipWrappers(element.expression), budget.alias)) continue;
         return null;
       }
       const inner = stringsOf(element, resolve, budget, depth + 1);
@@ -126,7 +132,7 @@ function stringsOf(
     const out: string[] = [];
     for (const property of node.properties) {
       if (ts.isSpreadAssignment(property)) {
-        if (isDefaultsList(skipWrappers(property.expression))) continue;
+        if (isDefaultsList(skipWrappers(property.expression), budget.alias)) continue;
         return null;
       }
       if (!ts.isPropertyAssignment(property)) return null;
@@ -154,6 +160,7 @@ export function unsafeSanitizerOptions(
   module: string,
   options: ts.Expression | undefined,
   resolve: ExpressionResolver | null,
+  alias: string | null = null,
   depth = 0,
 ): string | null {
   const family = isDomPurifyFamily(module)
@@ -169,7 +176,7 @@ export function unsafeSanitizerOptions(
   if (node.properties.length > MAX_ENTRIES) return "its options object is too large to read";
   for (const property of node.properties) {
     if (ts.isSpreadAssignment(property)) {
-      const inner = unsafeSanitizerOptions(module, property.expression, resolve, depth + 1);
+      const inner = unsafeSanitizerOptions(module, property.expression, resolve, alias, depth + 1);
       if (inner !== null) return inner;
       continue;
     }
@@ -184,7 +191,7 @@ export function unsafeSanitizerOptions(
       value = property.initializer;
     }
     if (key === null || value === null) return "it has a computed option name";
-    const reason = unsafeOption(family, key, value, resolve);
+    const reason = unsafeOption(family, key, value, resolve, alias);
     if (reason !== null) return reason;
   }
   return null;
@@ -195,18 +202,19 @@ function unsafeOption(
   key: string,
   value: ts.Expression,
   resolve: ExpressionResolver | null,
+  alias: string | null,
 ): string | null {
   const node = resolved(value, resolve);
   if (family === "dompurify") {
     if (key === "ADD_TAGS" || key === "ALLOWED_TAGS") {
-      const tags = stringsOf(node, resolve);
+      const tags = stringsOf(node, resolve, newBudget(alias));
       if (tags === null) return `${key} is not an inline list of tags`;
       return tags.some((tag) => DANGEROUS_TAG.test(tag))
         ? `${key} allows a script-capable tag`
         : null;
     }
     if (key === "ADD_ATTR" || key === "ALLOWED_ATTR") {
-      const attributes = stringsOf(node, resolve);
+      const attributes = stringsOf(node, resolve, newBudget(alias));
       if (attributes === null) return `${key} is not an inline list of attributes`;
       return attributes.some((attribute) => EVENT_HANDLER_ATTR.test(attribute))
         ? `${key} allows an event-handler attribute`
@@ -228,7 +236,7 @@ function unsafeOption(
   }
   if (key === "allowedTags") {
     if (node.kind === ts.SyntaxKind.FalseKeyword) return "allowedTags: false allows every tag";
-    const tags = stringsOf(node, resolve);
+    const tags = stringsOf(node, resolve, newBudget(alias));
     if (tags === null) return "allowedTags is not an inline list of tags";
     return tags.some((tag) => DANGEROUS_TAG.test(tag))
       ? "allowedTags allows a script-capable tag"
@@ -237,7 +245,7 @@ function unsafeOption(
   if (key === "allowedAttributes") {
     if (node.kind === ts.SyntaxKind.FalseKeyword)
       return "allowedAttributes: false allows every attribute";
-    const attributes = stringsOf(node, resolve);
+    const attributes = stringsOf(node, resolve, newBudget(alias));
     if (attributes === null) return "allowedAttributes is not an inline list";
     return attributes.some((attribute) => EVENT_HANDLER_ATTR.test(attribute) || attribute === "*")
       ? "allowedAttributes allows an event-handler attribute or every attribute"
@@ -246,7 +254,7 @@ function unsafeOption(
   if (key === "allowVulnerableTags")
     return isOff(node) ? null : "allowVulnerableTags: true keeps script and style content";
   if (key === "allowedSchemes" || key === "allowedSchemesByTag") {
-    const schemes = stringsOf(node, resolve);
+    const schemes = stringsOf(node, resolve, newBudget(alias));
     if (schemes === null) return "allowedSchemes is not an inline list";
     return schemes.some((scheme) => /^(javascript|vbscript)$/i.test(scheme))
       ? "allowedSchemes allows script URLs"
@@ -287,6 +295,14 @@ export function domPurifyFileRisk(
   return risk;
 }
 
+/** `=`, `+=`, `||=` and the other assignment operators, and the comma operator. */
+function isAssignmentOperator(kind: ts.SyntaxKind): boolean {
+  return kind >= ts.SyntaxKind.FirstAssignment && kind <= ts.SyntaxKind.LastAssignment;
+}
+function isAssignmentOrComma(kind: ts.SyntaxKind): boolean {
+  return isAssignmentOperator(kind) || kind === ts.SyntaxKind.CommaToken;
+}
+
 const ATTRIBUTE_WRITERS = /^(setAttribute|removeAttribute)$/;
 const ATTRIBUTE_READERS = /^(getAttribute|hasAttribute)$/;
 const MAX_HOOK_NODES = 200;
@@ -303,7 +319,7 @@ function isBenignHook(callback: ts.Expression | undefined): boolean {
   if (!callback) return false;
   const fn = skipWrappers(callback);
   if (!ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn)) return false;
-  const budget: Budget = { left: MAX_HOOK_NODES };
+  const budget: Budget = { left: MAX_HOOK_NODES, alias: null };
   const isConstant = (node: ts.Expression | undefined): node is ts.StringLiteralLike =>
     node !== undefined && ts.isStringLiteralLike(skipWrappers(node));
   const textOf = (node: ts.Expression) => (skipWrappers(node) as ts.StringLiteralLike).text;
@@ -314,9 +330,18 @@ function isBenignHook(callback: ts.Expression | undefined): boolean {
     const e = skipWrappers(node);
     if (ts.isIdentifier(e) || ts.isStringLiteralLike(e) || ts.isNumericLiteral(e)) return true;
     if (ts.isPropertyAccessExpression(e)) return isCondition(e.expression, depth + 1);
-    if (ts.isPrefixUnaryExpression(e)) return isCondition(e.operand, depth + 1);
+    if (ts.isPrefixUnaryExpression(e))
+      return (
+        e.operator !== ts.SyntaxKind.PlusPlusToken &&
+        e.operator !== ts.SyntaxKind.MinusMinusToken &&
+        isCondition(e.operand, depth + 1)
+      );
     if (ts.isBinaryExpression(e))
-      return isCondition(e.left, depth + 1) && isCondition(e.right, depth + 1);
+      return (
+        !isAssignmentOrComma(e.operatorToken.kind) &&
+        isCondition(e.left, depth + 1) &&
+        isCondition(e.right, depth + 1)
+      );
     if (ts.isCallExpression(e)) {
       const callee = skipWrappers(e.expression);
       return (
