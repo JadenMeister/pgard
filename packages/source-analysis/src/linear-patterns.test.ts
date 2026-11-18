@@ -315,19 +315,21 @@ describe("JavaScript route and protection detection (#302)", () => {
   it("stays linear on references nested deep inside one handler", () => {
     const head =
       "import express from 'express';\nimport rateLimit from 'express-rate-limit';\nconst app = express();\nconst limiter = rateLimit();\n";
-    const build = (depth: number, width: number) => {
-      let inner = "limiter,".repeat(width);
-      for (let i = 1; i < depth; i += 1) inner = `${"limiter,".repeat(width)}[${inner}]`;
+    // 300 levels of 300 identifiers (about 700 KiB). The control has the same shape with a name
+    // that is not a limiter, so only the cost of the usage climb differs between the two.
+    const build = (name: string) => {
+      let inner = `${name},`.repeat(300);
+      for (let i = 1; i < 300; i += 1) inner = `${`${name},`.repeat(300)}[${inner}]`;
       return `${head}app.post('/login', () => [${inner}]);\n`;
     };
-    const small = build(75, 300);
-    const large = build(300, 300);
-    analyzeJsSource(small, "a.js");
-    const quarter = timed(() => analyzeJsSource(small, "a.js")).ms;
-    const { value, ms } = timed(() => analyzeJsSource(large, "a.js"));
+    const withLimiter = build("limiter");
+    const control = build("other");
+    analyzeJsSource(control, "a.js");
+    const baseline = Math.max(timed(() => analyzeJsSource(control, "a.js")).ms, 1);
+    const { value, ms } = timed(() => analyzeJsSource(withLimiter, "a.js"));
     expect(value.facts.authRoutes).toEqual([{ line: 5, routePath: "/login", limited: true }]);
     expect(ms).toBeLessThan(LIMIT_MS * 4);
-    // Four times the input: linear is about 4x, a walk up from every reference about 16x.
-    expect(ms / Math.max(quarter, 1)).toBeLessThan(10);
+    // A walk up from every reference (no memo) costs about four times the control here.
+    expect(ms / baseline).toBeLessThan(2.5);
   });
 });

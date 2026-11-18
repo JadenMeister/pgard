@@ -241,7 +241,7 @@ describe("scanSourceCode", () => {
         "const authRouter = express.Router();\nauthRouter.post('/login', login);\nauthRouter.use(limiter);\nauthRouter.post('/reset-password', reset);\napp.use(authRouter);\n",
       );
       expect(brute).toHaveLength(1);
-      expect(brute[0]?.evidence).toMatch(/^1 authentication route\(s\).*server\.js:10$/);
+      expect(brute[0]?.evidence).toMatch(/^server\.js:10: 1 authentication route\(s\)/);
     });
 
     it("does not let a path-scoped use(limiter) cover other paths", async () => {
@@ -249,7 +249,7 @@ describe("scanSourceCode", () => {
         "app.use('/api/v2', limiter);\napp.post('/login', login);\napp.post('/api/v2/login', login2);\n",
       );
       expect(brute).toHaveLength(1);
-      expect(brute[0]?.evidence).toMatch(/^1 authentication route\(s\).*server\.js:10$/);
+      expect(brute[0]?.evidence).toMatch(/^server\.js:10: 1 authentication route\(s\)/);
     });
 
     it("does not let use('/log', limiter) cover /login, but covers /log and /log/x", async () => {
@@ -257,7 +257,7 @@ describe("scanSourceCode", () => {
         "app.use('/log', limiter);\napp.post('/login', login);\napp.post('/log/auth', login2);\n",
       );
       expect(brute).toHaveLength(1);
-      expect(brute[0]?.evidence).toMatch(/^1 authentication route\(s\).*server\.js:10$/);
+      expect(brute[0]?.evidence).toMatch(/^server\.js:10: 1 authentication route\(s\)/);
     });
 
     it("merges the demoted brute-force findings of a multi-file app into one", async () => {
@@ -268,7 +268,7 @@ describe("scanSourceCode", () => {
       });
       expect(brute).toHaveLength(1);
       expect(brute[0]).toMatchObject({ severity: "low", confidence: "low" });
-      expect(brute[0]?.evidence).toContain("5 authentication route(s)");
+      expect(brute[0]?.evidence).toContain(": 5 authentication route(s)");
       expect(brute[0]?.evidence).toContain("routes/a.js:2");
       expect(brute[0]?.evidence).not.toContain("more");
     });
@@ -289,8 +289,10 @@ describe("scanSourceCode", () => {
       expect(before.brute).toHaveLength(1);
       expect(after.brute).toHaveLength(1);
       expect(after.brute[0]?.id).toBe(before.brute[0]?.id);
-      expect(before.brute[0]?.evidence).toContain("1 authentication route(s)");
-      expect(after.brute[0]?.evidence).toContain("2 authentication route(s)");
+      expect(before.brute[0]?.evidence).toContain(": 1 authentication route(s)");
+      expect(after.brute[0]?.evidence).toContain(": 2 authentication route(s)");
+      // A cut at 160 characters (the pre-commit output) still names the first route.
+      expect(after.brute[0]?.evidence.slice(0, 160)).toContain("routes/a.js:2");
       expect(after.brute[0]?.evidence).toContain("routes/a.js:2");
     });
 

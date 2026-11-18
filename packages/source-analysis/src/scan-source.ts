@@ -696,7 +696,8 @@ export async function scanSourceCode(
         severity: "low",
         status: "suspected",
         confidence: "low",
-        evidence: `${count} authentication route(s) with no limiter visibly applied in their file, although a rate-limiting library is in the project (it may be applied in another file): ${where.join(", ")}${count > where.length ? ` and ${count - where.length} more` : ""}`,
+        // The routes come first: a short evidence cut (the pre-commit output) still shows them.
+        evidence: `${where.join(", ")}${count > where.length ? ` and ${count - where.length} more` : ""}: ${count} authentication route(s) with no limiter visibly applied in their file, although a rate-limiting library is in the project (it may be applied in another file)`,
         cause: "brute-unprotected-routes",
       });
     }
