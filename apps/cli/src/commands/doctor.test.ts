@@ -5,6 +5,7 @@ import path from "node:path";
 import { createInMemoryCredentialStore } from "@pgard/scan-core";
 import { afterEach, describe, expect, it } from "vitest";
 import { createTestContext, createTestDeps, createTestIo } from "../test-support.js";
+import type { JavaProbe } from "../java-runtime/probe.js";
 import { isSupportedNodeVersion, runDoctor } from "./doctor.js";
 
 const scratch: string[] = [];
@@ -235,5 +236,117 @@ describe("runDoctor", () => {
     ]) {
       expect(isSupportedNodeVersion(bad), bad).toBe(false);
     }
+  });
+});
+
+describe("runDoctor Java runtime row", () => {
+  const javaRow = (stdout: string): string =>
+    stdout.split("\n").find((line) => /Java runtime|Java 런타임/.test(line)) ?? "";
+  const withJava = (text: string): JavaProbe => ({ status: "output", text });
+  async function run(
+    probe: JavaProbe | (() => Promise<JavaProbe>),
+    env: Record<string, string> = {},
+  ) {
+    const captured = createTestIo({ env });
+    const readJavaVersion = typeof probe === "function" ? probe : async () => probe;
+    const code = await runDoctor(createTestContext(captured, createTestDeps({ readJavaVersion })));
+    return { code, row: javaRow(captured.stdout()), stdout: captured.stdout() };
+  }
+
+  it("warns for a listed version with the CVE, the list date and the source link", async () => {
+    const { code, row } = await run(withJava('openjdk version "17.0.21" 2026-10-21'));
+    expect(code).toBe(0);
+    expect(row).toBe(
+      "  [warn] Java runtime: Java 17.0.21 is listed as affected by CVE-2026-91403 (critical; vendor alert 2026-10-21). Update to a fixed release from your JDK vendor; PGARD's list date: 2026-11-18. Source: https://www.oracle.com/security-alerts/alert-cve-2026-91403.html",
+    );
+  });
+
+  it("reads 1.8.0_511 as 8u511 and warns", async () => {
+    const { row } = await run(withJava('java version "1.8.0_511"'));
+    expect(row).toContain("[warn]");
+    expect(row).toContain("Java 1.8.0_511 is listed");
+  });
+
+  it("says 'not in PGARD's list' as an [info] row and never claims safety", async () => {
+    for (const text of [
+      'openjdk version "17.0.22"',
+      'openjdk version "28.0.1"',
+      'openjdk version "27.0.2"',
+    ]) {
+      const { code, row } = await run(withJava(text));
+      expect(code).toBe(0);
+      expect(row).toContain("[info]");
+      expect(row).toContain("not in PGARD's list (list date 2026-11-18)");
+      expect(row).not.toMatch(/safe|secure|not vulnerable|\[ok\]/i);
+    }
+  });
+
+  it("warns, without a neutral wording, for a release line the notice does not cover", async () => {
+    for (const text of [
+      'openjdk version "22.0.2"',
+      'openjdk version "26.0.1"',
+      'openjdk version "9.0.4"',
+      'java version "10.0.2"',
+      'java version "1.7.0_80"',
+      'java version "1.6.0_45"',
+    ]) {
+      const { code, row } = await run(withJava(text));
+      expect(code).toBe(0);
+      expect(row, text).toContain("[warn]");
+      expect(row, text).toContain("an older release line the vendor notice does not cover");
+      expect(row, text).toContain("out of support); it may be affected");
+      expect(row, text).not.toContain("not in PGARD's list");
+      expect(row, text).not.toMatch(/safe|secure|not vulnerable/i);
+    }
+  });
+
+  it("is not judged, as a [warn], when Java ran but its version cannot be read", async () => {
+    const { code, row } = await run(withJava("bonjour, pas de version ici"));
+    expect(code).toBe(0);
+    expect(row).toContain("[warn]");
+    expect(row).toContain("version could not be read; not judged");
+  });
+
+  it("is not judged when Java could not be run", async () => {
+    for (const [cause, words] of [
+      ["timeout", "did not answer within 5 seconds"],
+      ["access", "permission denied"],
+      ["error", "could not be run"],
+    ] as const) {
+      const { code, row } = await run({ status: "failed", cause });
+      expect(code).toBe(0);
+      expect(row).toContain("[warn]");
+      expect(row).toContain(words);
+      expect(row).toContain("not judged");
+    }
+  });
+
+  it("is an [info] row when there is no Java", async () => {
+    const { code, row } = await run({ status: "missing" });
+    expect(code).toBe(0);
+    expect(row).toBe("  [info] Java runtime: No Java runtime found (nothing to check)");
+  });
+
+  it("never fails the run, even when the probe itself rejects", async () => {
+    const { code, row, stdout } = await run(() => Promise.reject(new Error("boom")));
+    expect(code).toBe(0);
+    expect(row).toContain("[warn]");
+    expect(row).toContain("not judged");
+    expect(stdout).toContain("All required checks passed.");
+  });
+
+  it("keeps the summary line and exit code unchanged for a listed version", async () => {
+    const { code, stdout } = await run(withJava('openjdk version "21.0.13"'));
+    expect(code).toBe(0);
+    expect(stdout).toContain("All required checks passed.");
+    expect(stdout).not.toContain("need attention");
+  });
+
+  it("prints no file path and no raw output", async () => {
+    const { stdout } = await run(
+      withJava('Picked up JAVA_TOOL_OPTIONS: -Dsecret=/Users/me/x\nopenjdk version "17.0.21"'),
+    );
+    expect(stdout).not.toContain("/Users/me");
+    expect(stdout).not.toContain("JAVA_TOOL_OPTIONS");
   });
 });

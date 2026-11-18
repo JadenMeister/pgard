@@ -88,7 +88,10 @@ export function importAliasesOf(source: string): Map<string, string> {
  * dropped, in one pass (so an assignment split by a comment or a newline reads as one, and one
  * inside a string does not count). A `/*` that never closes ends the text.
  */
-export function withoutCommentsAndStrings(source: string): string {
+export function withoutCommentsAndStrings(
+  source: string,
+  language: "java" | "kotlin" = "java",
+): string {
   const out: string[] = [];
   let i = 0;
   let from = 0;
@@ -110,10 +113,33 @@ export function withoutCommentsAndStrings(source: string): string {
       i = end < 0 ? source.length : end + 2;
       from = i;
       out.push(" ");
-    } else if (char === '"' || char === "'") {
+    } else if (char === "'") {
+      // A character literal is a few characters; a quote with no partner nearby is plain text
+      // (Kotlin `"${'"'}"` leaves one), so it cannot hide the code that follows.
+      let end = i + 1;
+      const limit = Math.min(source.length, i + 9);
+      while (end < limit && source[end] !== "'" && source[end] !== "\n") {
+        end += source[end] === "\\" ? 2 : 1;
+      }
+      if (end < limit && source[end] === "'") {
+        flush(i);
+        i = end + 1;
+        from = i;
+        out.push('""');
+      } else {
+        i += 1;
+      }
+    } else if (char === '"') {
       flush(i);
       if (source.startsWith('"""', i)) {
-        const end = source.indexOf('"""', i + 3);
+        // A Java text block honours `\` (`\"""` is a quote, not the end); a Kotlin raw string does not.
+        let end = source.indexOf('"""', i + 3);
+        while (language === "java" && end > 0) {
+          let slashes = 0;
+          while (source[end - 1 - slashes] === "\\") slashes += 1;
+          if (slashes % 2 === 0) break;
+          end = source.indexOf('"""', end + 1);
+        }
         i = end < 0 ? source.length : end + 3;
       } else {
         i += 1;
@@ -138,9 +164,12 @@ export function withoutCommentsAndStrings(source: string): string {
  * `!=`, `=>`). A field's own declaration counts once. Found from each `=` looking backwards a
  * bounded distance, so the cost is linear in the text.
  */
-export function assignCountsOf(source: string): Map<string, number> {
+export function assignCountsOf(
+  source: string,
+  language: "java" | "kotlin" = "java",
+): Map<string, number> {
   const counts = new Map<string, number>();
-  const text = withoutCommentsAndStrings(source);
+  const text = withoutCommentsAndStrings(source, language);
   const isWord = (char: string | undefined): boolean => char !== undefined && /[\w$]/.test(char);
   const count = (end: number): void => {
     let at = end;
@@ -210,7 +239,7 @@ export function analyzeJvmTree(
   const ast = toAst(root, source);
   const unit = language === "java" ? convertJava(ast) : convertKotlin(ast);
   unit.imports = importsOf(source);
-  unit.assignCounts = assignCountsOf(source);
+  unit.assignCounts = assignCountsOf(source, language);
   unit.aliases = importAliasesOf(source);
   const sql = analyzeSql(unit);
   const security = analyzeSpringSecurity(unit);
