@@ -704,11 +704,11 @@ export const SOURCE_RULES = [
     },
     rationale: {
       en: "DES, 3DES, RC4 and ECB are broken or leak the structure of the plaintext, so a captured ciphertext may be recovered or, without a GCM tag or MAC, modified undetected. A predictable random source (`java.util.Random`, `Math.random()`) for a key, IV, salt or token can be guessed. Java and Kotlin also read bare `AES` (ECB), RSA with no padding (deterministic and malleable), MD5 or SHA-1 `Signature` algorithms such as `MD5withRSA`, a fixed IV and such random values.",
-      ko: "DES, 3DES, RC4, ECB는 깨졌거나 평문의 구조를 드러내므로, 가로챈 암호문을 복구하거나 GCM 태그나 MAC이 없으면 들키지 않게 변조할 수 있습니다. 키·IV·salt·토큰에 쓰는 예측 가능한 난수(`java.util.Random`, `Math.random()`)는 추측당할 수 있습니다. Java와 Kotlin은 모드 없는 `AES`(ECB), 패딩 없는 RSA(같은 입력에 같은 결과, 변조도 쉬움), `MD5withRSA` 같은 MD5·SHA-1 `Signature` 알고리즘, 고정 IV, 이런 난수 값도 읽습니다.",
+      ko: "DES, 3DES, RC4, ECB는 깨졌거나 평문의 구조를 드러내므로, 가로챈 암호문을 복구하거나 GCM 태그나 MAC이 없으면 들키지 않게 변조할 수 있습니다. 키·IV·salt·토큰에 쓰는 예측 가능한 난수(`java.util.Random`, `Math.random()`)는 추측당할 수 있습니다. Java와 Kotlin에서는 모드 없는 `AES`(ECB), 패딩 없는 RSA(같은 입력에 같은 결과, 변조도 쉬움), `MD5withRSA` 같은 MD5·SHA-1 `Signature` 알고리즘, 고정 IV, 이런 난수 값도 읽습니다.",
     },
     remediation: {
-      en: "Use an AEAD cipher: AES-256-GCM through `crypto.createCipheriv('aes-256-gcm', key, iv)`, with a new random 12-byte IV for every message. Store the tag from `getAuthTag()` after encrypting. When decrypting, create the decipher with `{ authTagLength: 16 }` (or check the stored tag is 16 bytes) and call `setAuthTag()` before `final()`, so a truncated tag is rejected. Never reuse an IV with the same key. In Java use `AES/GCM/NoPadding` and `SecureRandom`.",
-      ko: "AEAD 암호를 사용하세요. `crypto.createCipheriv('aes-256-gcm', key, iv)`로 AES-256-GCM을 쓰고, 메시지마다 새 무작위 12바이트 IV를 만들며, 암호화한 뒤 `getAuthTag()`로 얻은 태그를 함께 저장하세요. 복호화할 때는 `{ authTagLength: 16 }`으로 decipher를 만들고(또는 저장된 태그가 16바이트인지 확인하고) `final()` 전에 `setAuthTag()`를 호출해 잘린 태그를 거부하세요. 같은 키로 IV를 재사용하지 마세요. Java에서는 `AES/GCM/NoPadding`과 `SecureRandom`을 쓰세요.",
+      en: "Use an AEAD cipher: AES-256-GCM through `crypto.createCipheriv('aes-256-gcm', key, iv)`, with a new random 12-byte IV for every message, never reused with the same key. Store the `getAuthTag()` tag; when decrypting, set `{ authTagLength: 16 }` and call `setAuthTag()` before `final()` to reject a truncated tag. In Java use `AES/GCM/NoPadding` and `SecureRandom`; use RSA-OAEP instead of no padding, and SHA-256 or stronger signatures (`SHA256withRSA`, ECDSA with SHA-256, Ed25519).",
+      ko: "AEAD 암호를 사용하세요. `crypto.createCipheriv('aes-256-gcm', key, iv)`로 AES-256-GCM을 쓰고, 메시지마다 새 무작위 12바이트 IV를 만들며 같은 키로 재사용하지 마세요. `getAuthTag()`로 얻은 태그를 저장하고, 복호화할 때는 `{ authTagLength: 16 }`으로 decipher를 만들어 `final()` 전에 `setAuthTag()`를 호출해 잘린 태그를 거부하세요. Java와 Kotlin에서는 `AES/GCM/NoPadding`과 `SecureRandom`을 쓰고, 패딩 없는 RSA 대신 RSA-OAEP를, 서명은 SHA-256 이상(`SHA256withRSA`, SHA-256 ECDSA, Ed25519)을 쓰세요.",
     },
     examples: [
       {

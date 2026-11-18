@@ -136,9 +136,17 @@ export const KEY_PROPERTY =
   /secret|hmac|passphrase|private[-_.]?key|signing[-_.]?key|encryption[-_.]?key|crypto[-_.]?key|aes[-_.]?key|jwt[-_.]?key/i;
 /** A property whose last segment is just `key` (`api.key`, `signing.key`). */
 export const GENERIC_KEY_PROPERTY = /(?:^|[-_.])key$/i;
-/** `key` of a message bundle or a messaging client, which is not a cryptographic key. */
+/**
+ * `key` of a message bundle or a messaging client, which is not a cryptographic key. `producer` and
+ * `consumer` alone do not skip (`oauth.consumer.key` and `stripe.consumer.key` are credentials).
+ */
 export const NOT_A_CRYPTO_KEY_CONTEXT =
-  /(?:^|[-_.])(?:i18n|l10n|messages?|kafka|rabbit|amqp|topic|producer|consumer|locale|bundle|label)(?:[-_.]|$)/i;
+  /(?:^|[-_.])(?:i18n|l10n|kafka|rabbit|amqp|topic|locale|bundle|label)(?:[-_.]|$)/i;
+/** A crypto or credential word anywhere in the full name wins over a skip word. */
+export const CRYPTO_WORD =
+  /encrypt|sign|hmac|secret|ssl|tls|jaas|sasl|api|license|oauth|auth|jwt|private|credential|token|cipher|crypto/i;
+const isGenericKey = (name: string): boolean =>
+  CRYPTO_WORD.test(name) || !NOT_A_CRYPTO_KEY_CONTEXT.test(name);
 const NOT_A_KEY_PROPERTY =
   /public|prefix|header|name|[-_.]id$|path|url|algorithm|expir|ttl|file|location|issuer|alias|length|size/i;
 const NOT_A_KEY_PROPERTY_FULL =
@@ -150,7 +158,7 @@ export const PASSWORD_PROPERTY = /(?:^|[-_.])(?:password|passwd|passphrase)$/i;
  * the PG-SECRET rules.
  */
 export const CRYPTO_PASSWORD_CONTEXT =
-  /encrypt|jasypt|key[-_.]?store|trust[-_.]?store|keystore|truststore|sign(?:ing|er)?(?:[-_.]|$)|(?:^|[-_.])(?:ssl|tls|crypto|cipher|jwt|jws|jwe|pkcs\d*|p12|pfx|jks|cert(?:ificate)?|private[-_.]?key|key)(?:[-_.]|$)/i;
+  /encrypt|jasypt|key[-_.]?store|trust[-_.]?store|keystore|truststore|(?:^|[-_.])sign(?:ing|er|ature)?(?:[-_.]|$)|(?:^|[-_.])(?:aes|pgp|gpg|keypair|keyring|master|vault|zip|archive|backup|pdf|ssl|tls|crypto|cipher|jwt|jws|jwe|pkcs\d*|p12|pfx|jks|cert(?:ificate)?|private[-_.]?key|key)(?:[-_.]|$)/i;
 const KEY_FIELD =
   /secret|signingKey|hmac|privateKey|encryptionKey|aesKey|jwtKey|^key$|^secretKey$/i;
 
@@ -1557,11 +1565,11 @@ export function cryptoFindings(unit: Unit): CryptoFinding[] {
       const keyed =
         !excluded &&
         (KEY_PROPERTY.test(last) ||
-          (GENERIC_KEY_PROPERTY.test(last) && !NOT_A_CRYPTO_KEY_CONTEXT.test(parsed.name)) ||
+          (GENERIC_KEY_PROPERTY.test(last) && isGenericKey(parsed.name)) ||
           (PASSWORD_PROPERTY.test(last) && CRYPTO_PASSWORD_CONTEXT.test(parsed.name)) ||
           (KEY_FIELD.test(fieldName) &&
             !NOT_A_KEY_PROPERTY.test(fieldName) &&
-            !(/^key$/i.test(fieldName) && NOT_A_CRYPTO_KEY_CONTEXT.test(parsed.name))));
+            (!/^key$/i.test(fieldName) || isGenericKey(parsed.name))));
       if (!keyed) continue;
       consumed.add(annotation);
       // Only the name says it is a key: low confidence. A default that reaches a key API is

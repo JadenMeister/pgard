@@ -972,6 +972,70 @@ describe("property scope counts (#350)", () => {
   });
 });
 
+describe("property scope, review round (#350)", () => {
+  const count = async (name: string, field = "String a"): Promise<number> =>
+    (await run(java(`${V}("\${${name}:Xk9!pQ2#vLm8zR4t}") ${field};`), "A.java")).length;
+  it.each([
+    "rabbit.encryption.key",
+    "message.encryption.key",
+    "app.topic-encryption.key",
+    "producer.signing.key",
+    "label.signing.key",
+    "topic.hmac.key",
+    "kafka.ssl.key",
+    "kafka.sasl.jaas.key",
+    "consumer.api.key",
+    "bundle.license.key",
+    "app.messages.key",
+    "stripe.consumer.key",
+    "oauth.consumer.key",
+  ])("still reports %s, also on a field named key", async (name) => {
+    expect(await count(name)).toBe(1);
+    expect(await count(name, "String key")).toBe(1);
+  });
+  it.each(["app.i18n.message.key", "kafka.producer.key", "kafka.consumer.key"])(
+    "skips %s",
+    async (name) => {
+      expect(await count(name)).toBe(0);
+      expect(await count(name, "String key")).toBe(0);
+    },
+  );
+  it.each([
+    "app.aes.password",
+    "app.pgp.password",
+    "app.gpg.password",
+    "app.signature.password",
+    "app.keypair.password",
+    "app.keyring.password",
+    "app.master.password",
+    "app.vault.password",
+    "app.zip.password",
+    "app.archive.password",
+    "app.backup.password",
+    "app.pdf.password",
+  ])("reports the crypto-purposed password %s", async (name) => {
+    expect(await count(name)).toBe(1);
+  });
+  it.each([
+    "design.password",
+    "spring.datasource.password",
+    "spring.mail.password",
+    "spring.redis.password",
+  ])("does not report %s", async (name) => {
+    expect(await count(name)).toBe(0);
+  });
+  it("judges the SHA-1 signature families", async () => {
+    for (const alg of ["SHA1withRSAandMGF1", "SHA1withRSA/PSS", "SHA1withECDSAinP1363Format"]) {
+      const found = await run(
+        java(`Signature s() throws Exception { return Signature.getInstance("${alg}"); }`),
+        "A.java",
+      );
+      expect(found.map((finding) => finding.ruleId)).toEqual(["PG-CRYPTO-003"]);
+    }
+    expect(weakSignatureReason("SHA256withRSAandMGF1")).toBeNull();
+  });
+});
+
 describe("name helpers", () => {
   it("reads weak cipher names", () => {
     expect(weakCipherReason("DESede/CBC/PKCS5Padding", true)).toMatch(/DESede/);

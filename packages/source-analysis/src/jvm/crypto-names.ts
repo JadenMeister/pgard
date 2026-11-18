@@ -58,7 +58,8 @@ export function weakCipherReason(text: string, transformation: boolean): string 
 }
 
 /** A signature algorithm built on MD2, MD5 or SHA-1 (`MD5withRSA`, `SHA1withECDSA`). */
-const WEAK_SIGNATURE = /^(?:MD2|MD5|SHA-?1)with(?:RSA|DSA|ECDSA)$/i;
+const WEAK_SIGNATURE =
+  /^(?:MD2|MD5|SHA-?1)with(?:RSA(?:andMGF1|\/PSS)?|DSA|ECDSA(?:inP1363Format)?)$/i;
 
 /** Why a `Signature.getInstance` algorithm name is weak (a broken or deprecated digest), or null. */
 export function weakSignatureReason(text: string): string | null {
