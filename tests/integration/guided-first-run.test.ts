@@ -519,13 +519,22 @@ describe("no terminal: fail fast instead of starting the device flow (#296)", ()
     return captured;
   }
 
-  const stores: Array<[string, () => CredentialStore]> = [
-    ["an empty keychain", () => createInMemoryCredentialStore()],
-    ["a locked or missing keychain", () => createUnavailableCredentialStore("locked")],
+  // With a usable keychain `pgard login` is the fix; without one it cannot help, so the reason
+  // points to `--code-only` instead (#487).
+  const stores: Array<[string, () => CredentialStore, string]> = [
+    [
+      "an empty keychain",
+      () => createInMemoryCredentialStore(),
+      "Run `pgard login` in a terminal first",
+    ],
+    [
+      "a locked or missing keychain",
+      () => createUnavailableCredentialStore("locked"),
+      "Use `pgard scan code --code-only` for a scan that needs no sign-in",
+    ],
   ];
-  const REASON = "Run `pgard login` in a terminal first";
 
-  describe.each(stores)("with %s", (_name, makeStore) => {
+  describe.each(stores)("with %s", (_name, makeStore, REASON) => {
     const formats: Array<[string, string[]]> = [
       ["scan (text)", ["scan", "code"]],
       ["scan history (text)", ["scan", "history"]],

@@ -38,7 +38,7 @@ describe("external-communication notices", () => {
   it("the doctor help lists the advisory data status and its only request", () => {
     const text = getHelpText("doctor");
     expect(text).toContain("present or missing, age, stale after 7 days, data version, store path");
-    expect(text).toContain("unauthenticated HEAD to\napi.github.com");
+    expect(text).toContain("unauthenticated HEAD to\ngithub.com, api.github.com");
   });
 
   it("the login help names the two GitHub hosts", () => {

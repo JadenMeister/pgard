@@ -94,7 +94,7 @@ describe("openGitHubUrl", () => {
     const spawn = vi.fn(async () => true);
     const env = { SystemRoot: "D:\\WIN" };
     expect(await openGitHubUrl(url, { platform: "win32", spawn, env })).toBe(true);
-    expect(spawn).toHaveBeenCalledWith("D:\\WIN\\explorer.exe", [url]);
+    expect(spawn).toHaveBeenCalledWith("D:\\WIN\\explorer.exe", [url], { checkExit: false });
     // An untrusted SystemRoot falls back to the default instead of being executed.
     for (const root of ["..\\x", "\\\\host\\share", "C:\\a&calc", "explorer"]) {
       expect(windowsExplorerPath({ SystemRoot: root })).toBe("C:\\Windows\\explorer.exe");
@@ -147,11 +147,13 @@ describe("openGitHubUrl", () => {
 
   it("passes the URL as one argument and reports a failed start as false", async () => {
     const spawn = vi.fn(async () => true);
-    expect(await openGitHubUrl(url, { platform: "linux", spawn })).toBe(true);
-    expect(spawn).toHaveBeenCalledWith("xdg-open", [url]);
+    expect(await openGitHubUrl(url, { platform: "linux", spawn, isWsl: false })).toBe(true);
+    expect(spawn).toHaveBeenCalledWith("xdg-open", [url], { checkExit: true });
     const failing = vi.fn(async () => {
       throw new Error("ENOENT");
     });
-    expect(await openGitHubUrl(url, { platform: "linux", spawn: failing })).toBe(false);
+    expect(await openGitHubUrl(url, { platform: "linux", spawn: failing, isWsl: false })).toBe(
+      false,
+    );
   });
 });

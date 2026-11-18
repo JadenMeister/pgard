@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { isOpenableGitHubUrl } from "./app-install.js";
 
@@ -23,7 +24,8 @@ export function windowsExplorerPath(env: NodeJS.ProcessEnv = process.env): strin
 
 /**
  * The platform's URL opener with a fixed argument vector (never a shell string):
- * macOS `open <url>`, Windows `%SystemRoot%\explorer.exe <url>`, everything else `xdg-open <url>`.
+ * macOS `open <url>`, Windows `%SystemRoot%\explorer.exe <url>`, WSL `wslview <url>` (from the
+ * `wslu` package; `xdg-open` usually finds no browser there), everything else `xdg-open <url>`.
  *
  * Windows uses `explorer.exe` rather than `cmd /c start`, because cmd would parse `&` in the
  * query string as a command separator. `null` when the URL is not an `https://github.com/` URL,
@@ -34,6 +36,7 @@ export function openerCommandFor(
   platform: NodeJS.Platform,
   url: string,
   env: NodeJS.ProcessEnv = process.env,
+  isWsl = false,
 ): OpenerCommand | null {
   if (!OPENER_URL_CHARACTERS.test(url) || !isOpenableGitHubUrl(url)) return null;
   switch (platform) {
@@ -42,14 +45,43 @@ export function openerCommandFor(
     case "win32":
       return { command: windowsExplorerPath(env), args: [url] };
     default:
-      return { command: "xdg-open", args: [url] };
+      return { command: isWsl ? "wslview" : "xdg-open", args: [url] };
   }
 }
 
-export type SpawnOpener = (command: string, args: readonly string[]) => Promise<boolean>;
+/** WSL kernels report "microsoft" (WSL2: `...-microsoft-standard-WSL2`; WSL1: `...-Microsoft`). */
+export function isWslVersionText(text: string): boolean {
+  return text.toLowerCase().includes("microsoft");
+}
 
-/** Starts the opener detached, without a shell, ignoring its output. Never rejects. */
-export const spawnOpener: SpawnOpener = (command, args) =>
+/** Whether this Linux runs under WSL, from `/proc/version`. `false` when it cannot be read. */
+export function detectWsl(
+  platform: NodeJS.Platform = process.platform,
+  readVersion: () => string = () => readFileSync("/proc/version", "utf8"),
+): boolean {
+  if (platform !== "linux") return false;
+  try {
+    return isWslVersionText(readVersion());
+  } catch {
+    return false;
+  }
+}
+
+/** How long an opener may run before it counts as started (a browser that stays open is fine). */
+export const OPENER_EXIT_GRACE_MS = 2_000;
+
+export type SpawnOpener = (
+  command: string,
+  args: readonly string[],
+  options?: { checkExit?: boolean },
+) => Promise<boolean>;
+
+/**
+ * Starts the opener detached, without a shell, ignoring its output. Never rejects. `false` when it
+ * cannot start, and, with `checkExit`, when it exits non-zero within `OPENER_EXIT_GRACE_MS` (an
+ * `xdg-open` without a browser does that). An opener still running after that counts as opened.
+ */
+export const spawnOpener: SpawnOpener = (command, args, options = {}) =>
   new Promise((resolve) => {
     let child;
     try {
@@ -61,7 +93,16 @@ export const spawnOpener: SpawnOpener = (command, args) =>
     child.once("error", () => resolve(false));
     child.once("spawn", () => {
       child.unref();
-      resolve(true);
+      if (options.checkExit !== true) {
+        resolve(true);
+        return;
+      }
+      const timer = setTimeout(() => resolve(true), OPENER_EXIT_GRACE_MS);
+      timer.unref();
+      child.once("exit", (code) => {
+        clearTimeout(timer);
+        resolve(code === 0);
+      });
     });
   });
 
@@ -72,9 +113,20 @@ export const spawnOpener: SpawnOpener = (command, args) =>
  */
 export async function openGitHubUrl(
   url: string,
-  options: { platform?: NodeJS.Platform; spawn?: SpawnOpener; env?: NodeJS.ProcessEnv } = {},
+  options: {
+    platform?: NodeJS.Platform;
+    spawn?: SpawnOpener;
+    env?: NodeJS.ProcessEnv;
+    /** Overrides the `/proc/version` check (tests). */
+    isWsl?: boolean;
+  } = {},
 ): Promise<boolean> {
-  const opener = openerCommandFor(options.platform ?? process.platform, url, options.env);
+  const platform = options.platform ?? process.platform;
+  const isWsl = options.isWsl ?? detectWsl(platform);
+  const opener = openerCommandFor(platform, url, options.env, isWsl);
   if (opener === null) return false;
-  return (options.spawn ?? spawnOpener)(opener.command, opener.args).catch(() => false);
+  // `explorer.exe` exits 1 even when it opened the page, so only the others are judged by exit code.
+  return (options.spawn ?? spawnOpener)(opener.command, opener.args, {
+    checkExit: platform !== "win32",
+  }).catch(() => false);
 }

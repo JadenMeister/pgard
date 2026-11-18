@@ -16,7 +16,7 @@ import {
 import { stopBrowserOffers } from "../flows/browser.js";
 import { safeText } from "../ui/formatters/style.js";
 import { cliText } from "../ui/i18n/cli-text.js";
-import { localizeKeychainReason } from "../ui/i18n/command-text.js";
+import { localizeKeychainReason, networkHintText } from "../ui/i18n/command-text.js";
 
 /**
  * `pgard login`: runs the device flow and saves the sign-in in the OS keychain so later scans
@@ -65,6 +65,15 @@ export async function runLogin(context: CommandContext): Promise<ExitCode> {
     // GitHubAuthError messages are fixed text without tokens; anything else stays generic.
     const reason = isGitHubAuthError(error) ? safeText(error.message, 200) : text.unexpectedError;
     err(context, errStyle.red(text.failed(reason)));
+    if (isGitHubAuthError(error) && error.code === "network_error") {
+      // A fixed remedy chosen by the whitelisted cause code, never the error's own text.
+      err(
+        context,
+        errStyle.yellow(
+          networkHintText(cliText(context.ruleLocale).commands.network, error.causeCode, true),
+        ),
+      );
+    }
     return EXIT_CODES.blocked;
   }
   stopBrowserOffers(context);

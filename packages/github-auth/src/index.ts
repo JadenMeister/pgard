@@ -5,7 +5,10 @@ export {
   type AppInstallUrlInput,
 } from "./app-install.js";
 export {
+  OPENER_EXIT_GRACE_MS,
   OPENER_URL_CHARACTERS,
+  detectWsl,
+  isWslVersionText,
   openGitHubUrl,
   openerCommandFor,
   spawnOpener,
@@ -14,6 +17,7 @@ export {
 } from "./open-url.js";
 export {
   GitHubAuthError,
+  NOT_SIGNED_IN_NO_KEYCHAIN_MESSAGE,
   NOT_SIGNED_IN_NO_TERMINAL_MESSAGE,
   isGitHubAuthError,
   type GitHubAuthErrorCode,
@@ -86,3 +90,13 @@ export {
   type RemoveStoredSignInResult,
   type StoredSignInStatus,
 } from "./stored-sign-in.js";
+export {
+  CONNECTION_CAUSE_CODES,
+  TLS_CAUSE_CODES,
+  causeSuffix,
+  networkCauseCode,
+  networkHintEnglish,
+  networkHintKind,
+  type NetworkCauseCode,
+  type NetworkHintKind,
+} from "./network-cause.js";

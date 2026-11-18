@@ -5,7 +5,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { openLocalFile } from "./adapters/open-file.js";
-import { collectDependencies, readAdvisoryStatus, updateOsvData } from "@pgard/dependencies";
+import {
+  OSV_EXPORT_HOST,
+  collectDependencies,
+  readAdvisoryStatus,
+  updateOsvData,
+} from "@pgard/dependencies";
 import {
   discoverListeningPorts,
   probeLocalService,
@@ -29,6 +34,7 @@ import {
   createDeviceFlowSessionProvider,
   createOsCredentialStore,
   inspectGitRoot,
+  networkCauseCode,
   openGitHubUrl,
   recheckOwnerApproval,
   resolveGitExecutable,
@@ -43,6 +49,13 @@ import {
   type SignInNotice,
   type WebScanner,
 } from "@pgard/scan-core";
+
+/** One host `pgard doctor` tried: reachable, or the whitelisted reason it was not (`null`: unknown). */
+export interface HostProbe {
+  host: string;
+  isReachable: boolean;
+  causeCode: string | null;
+}
 
 /**
  * Everything the CLI does outside pure formatting goes through these functions, so commands can
@@ -135,7 +148,8 @@ export interface CliDeps {
   /** Starts the dashboard process (no shell) and resolves with its exit code. */
   startDashboardProcess: (entry: string, args: readonly string[]) => Promise<number>;
   readGitVersion: () => Promise<string | null>;
-  checkGitHubReachable: () => Promise<boolean>;
+  /** `pgard doctor`: can github.com, api.github.com and the OSV host be reached? */
+  probeHosts: () => Promise<HostProbe[]>;
   nodeVersion: string;
   /** Per-user data directory (downloaded advisory data lives under it). */
   appDataDir: string | null;
@@ -214,17 +228,26 @@ export function readGitVersionDefault(
   });
 }
 
-async function checkGitHubReachableDefault(): Promise<boolean> {
+async function probeHost(host: string, isOk: (status: number) => boolean): Promise<HostProbe> {
   try {
     // Unauthenticated HEAD request: no token, no repository data.
-    const response = await fetch("https://api.github.com/", {
+    const response = await fetch(`https://${host}/`, {
       method: "HEAD",
       signal: AbortSignal.timeout(DOCTOR_TIMEOUT_MS),
     });
-    return response.status < 500;
-  } catch {
-    return false;
+    return { host, isReachable: isOk(response.status), causeCode: null };
+  } catch (error) {
+    return { host, isReachable: false, causeCode: networkCauseCode(error) };
   }
+}
+
+async function probeHostsDefault(): Promise<HostProbe[]> {
+  return Promise.all([
+    probeHost("github.com", (status) => status < 500),
+    probeHost("api.github.com", (status) => status < 500),
+    // The bucket root answers 4xx without a key; any answer proves the host is reachable.
+    probeHost(OSV_EXPORT_HOST, () => true),
+  ]);
 }
 
 /** Client id (or the fixed reason a malformed override blocks) for the session provider. */
@@ -327,7 +350,7 @@ export function createDefaultDeps(): CliDeps {
     resolveDashboardEntry: resolveDashboardEntryDefault,
     startDashboardProcess: startDashboardProcessDefault,
     readGitVersion: readGitVersionDefault,
-    checkGitHubReachable: checkGitHubReachableDefault,
+    probeHosts: probeHostsDefault,
     nodeVersion: process.versions.node,
     appDataDir: resolveDataDirectory(process.env),
     updateAdvisories: updateOsvData,

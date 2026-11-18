@@ -1,4 +1,5 @@
 import { OSV_EXPORT_HOST } from "@pgard/dependencies";
+import { networkHintEnglish } from "@pgard/scan-core";
 import { err, out, throwIfCancelled, type CommandContext } from "../context.js";
 import { EXIT_CODES, type ExitCode } from "../exit-codes.js";
 
@@ -51,6 +52,13 @@ export async function runAdvisoriesUpdate(
         context,
         `  ${style.red("[fail]")} ${outcome.ecosystem}: ${outcome.error} The previous data (if any) is unchanged.`,
       );
+      if (outcome.unreachable !== undefined) {
+        // Fixed hint chosen by the whitelisted cause code; this command's text is English only.
+        out(
+          context,
+          `    ${networkHintEnglish(outcome.unreachable.causeCode, { codeOnly: false })} Allow ${OSV_EXPORT_HOST} on https (port 443).`,
+        );
+      }
       if (outcome.refusal !== undefined) {
         out(
           context,

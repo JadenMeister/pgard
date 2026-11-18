@@ -276,7 +276,10 @@ export function createTestDeps(overrides: Partial<CliDeps> = {}): CliDeps {
     resolveDashboardEntry: () => null,
     startDashboardProcess: unexpected("startDashboardProcess") as never,
     readGitVersion: async () => "git version 2.50.0",
-    checkGitHubReachable: async () => true,
+    probeHosts: async () =>
+      ["github.com", "api.github.com", "osv-vulnerabilities.storage.googleapis.com"].map(
+        (host) => ({ host, isReachable: true, causeCode: null }),
+      ),
     nodeVersion: "22.23.4",
     // No data directory: doctor reports "none"; a test that needs data overrides these.
     appDataDir: "/nonexistent/pgard-test-appdata",

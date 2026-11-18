@@ -624,7 +624,8 @@ describe("CLI and local web parity", { timeout: PARITY_TEST_TIMEOUT_MS }, () => 
     );
     expect(identity?.status).toBe("unverifiable");
     expect(identity?.reason).toBe(
-      "GitHub identity could not be verified: Could not reach GitHub for sign-in.",
+      "GitHub identity could not be verified: Could not reach GitHub for sign-in." +
+        " Check your internet connection. Behind a proxy, set HTTPS_PROXY and NODE_USE_ENV_PROXY=1 (Node 24 and newer). To scan without GitHub, use `pgard scan code --code-only`.",
     );
     expect(cli.stdout).not.toContain("PGARD_GITHUB_APP_CLIENT_ID");
 

@@ -58,6 +58,8 @@ export type UpdateOutcome =
       error: string;
       /** Set when the new data was refused because it would replace newer or larger data. */
       refusal?: "older-data" | "smaller-data";
+      /** Set when the host could not be reached; `causeCode` is a whitelisted code or `null`. */
+      unreachable?: { causeCode: string | null };
     };
 
 /**
@@ -231,6 +233,9 @@ async function updateOne(ecosystem: Ecosystem, options: UpdateOptions): Promise<
       ok: false,
       error: describeFailure(error),
       ...(error instanceof RollbackRefusedError ? { refusal: error.reason } : {}),
+      ...(error instanceof DownloadError && error.isUnreachable
+        ? { unreachable: { causeCode: error.causeCode } }
+        : {}),
     };
   } finally {
     if (stagingDir !== null)

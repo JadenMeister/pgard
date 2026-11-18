@@ -148,7 +148,9 @@ describe("pgard doctor in Korean", () => {
     const stdout = captured.stdout();
     for (const expected of [
       "pgard doctor (진단만 수행하며 권한 확인이 아닙니다)",
-      "GitHub 연결: api.github.com에 연결됨",
+      "GitHub 로그인 연결: github.com에 연결됨",
+      "GitHub API 연결: api.github.com에 연결됨",
+      "취약점 데이터 서버 연결: osv-vulnerabilities.storage.googleapis.com에 연결됨",
       "GitHub App: 내장 PGARD App (",
       "저장된 GitHub 로그인:",
       "취약점 데이터 (OSV):",
