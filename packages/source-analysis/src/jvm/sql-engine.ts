@@ -31,6 +31,7 @@ import {
   type Leaf,
   type Value,
 } from "./flow-values.js";
+import { ARCHIVE_ENTRY_TYPE } from "./os-names.js";
 import { createOsSinks, type OsFinding } from "./os-sinks.js";
 import { createWebSinks, type ModelAttribute, type WebFinding } from "./web-sinks.js";
 import { RESPONSE_NAME, RESPONSE_TYPES } from "./web-names.js";
@@ -182,18 +183,55 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
   // declaration anywhere in the file (`table = x`, `this.table = x`, `other.table += x`).
   const returnedNames = new Set<string>();
   const assignedNames = new Set<string>();
-  const ASSIGNING_ANNOTATIONS = new Set(["Setter", "Data"]);
+  /** Annotations that give a class setters, a generated constructor or a framework that fills private fields. */
+  const ASSIGNING_ANNOTATIONS = new Set([
+    "Setter",
+    "Data",
+    "Value",
+    "Builder",
+    "SuperBuilder",
+    "AllArgsConstructor",
+    "With",
+    "Entity",
+    "MappedSuperclass",
+    "Embeddable",
+    "Document",
+    "JsonAutoDetect",
+  ]);
+  const assignedByAnnotation = (cls: ClassInfo): boolean => {
+    for (let current: ClassInfo | null = cls; current !== null; current = current.parent) {
+      if ((current.annotations ?? []).some((a) => ASSIGNING_ANNOTATIONS.has(a.name))) return true;
+    }
+    return false;
+  };
   /** An array, or a list/set/map made to be changed: what a getter gives out can be written to. */
+  const WRITABLE_FACTORY =
+    /^(?:asList|mutable\w+|arrayListOf|hashSetOf|linkedSetOf|hashMapOf|linkedMapOf|arrayOf|\w+ArrayOf)$/;
   const writableTable = (field: FieldInfo, fieldType: string): boolean =>
     /\[\]/.test(field.type ?? "") ||
     fieldType === "Array" ||
     /^(?:Mutable|Array|Linked|Hash|Tree)\w*$/.test(fieldType) ||
+    field.init?.k === "array" ||
+    // Kotlin `val COLS = arrayOf(...)`: no type is written, the factory says it is an array.
+    (field.init?.k === "call" &&
+      field.init.recv === null &&
+      /^(?:arrayOf|\w+ArrayOf)$/.test(field.init.name)) ||
     (MUTABLE_COLLECTIONS.has(fieldType) &&
       (field.init?.k === "new" ||
-        (field.init?.k === "call" &&
-          /^(?:asList|mutable\w+|arrayListOf|hashSetOf|linkedSetOf|hashMapOf|linkedMapOf)$/.test(
-            field.init.name,
-          ))));
+        (field.init?.k === "call" && WRITABLE_FACTORY.test(field.init.name))));
+  /** Names a method hands out as a whole: `return COLS;`, `return this.COLS;`, `return b ? COLS : null;`. */
+  const exposeNames = (expr: Expr, depth: number): void => {
+    if (depth > 4) return;
+    if (expr.k === "id") returnedNames.add(expr.name);
+    else if (expr.k === "member" && expr.obj.k === "id" && expr.obj.name === "this") {
+      returnedNames.add(expr.name);
+    } else if (expr.k === "cond") {
+      exposeNames(expr.a, depth + 1);
+      exposeNames(expr.b, depth + 1);
+    } else if (expr.k === "alt") {
+      for (const option of expr.options) exposeNames(option, depth + 1);
+    }
+  };
   const rootName = (expr: Expr): string | null => {
     let current = expr;
     while (current.k === "member" || current.k === "index") current = current.obj;
@@ -242,6 +280,10 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
         usesProcessBuilder = true;
       }
       if (expr.k !== "call") return;
+      // `Arrays.asList(COLS)` is a list that writes through to the array.
+      if (expr.name === "asList" && expr.recv?.k === "id" && expr.recv.name === "Arrays") {
+        for (const arg of expr.args) exposeNames(arg, 0);
+      }
       if (expr.recv === null && realName(expr.name) === "ProcessBuilder") usesProcessBuilder = true;
       if (expr.name === "getRuntime") usesRuntime = true;
       if (MUTATORS.has(expr.name) && expr.recv !== null) {
@@ -259,15 +301,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
           assignedNames.add(stmt.target.name);
       }
       if (stmt.s === "exit" && stmt.ret === true && stmt.value !== null) {
-        const returned = stmt.value;
-        if (returned.k === "id") returnedNames.add(returned.name);
-        else if (
-          returned.k === "member" &&
-          returned.obj.k === "id" &&
-          returned.obj.name === "this"
-        ) {
-          returnedNames.add(returned.name);
-        }
+        exposeNames(stmt.value, 0);
       }
       if (stmt.s === "assign" && (stmt.target.k === "index" || stmt.target.k === "member")) {
         const root = rootName(stmt.target);
@@ -367,8 +401,12 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       !mutableType &&
       (field.type === null || fieldType === "String") &&
       (field.annotations ?? []).length === 0 &&
-      !(owner.annotations ?? []).some((annotation) => ASSIGNING_ANNOTATIONS.has(annotation.name)) &&
-      !assignedNames.has(field.name);
+      !assignedByAnnotation(owner) &&
+      !assignedNames.has(field.name) &&
+      // The declaration is one `name =`; any other (a setter, an anonymous or local class, a
+      // constructor, a string or comment that looks like one) keeps the finding.
+      unit.assignCounts !== undefined &&
+      (unit.assignCounts.get(field.name) ?? 0) <= 1;
     const mutableField = field.isMutable && !neverAssigned;
     let result: Value = unknown(
       mutableField || mutableType ? `mutable field ${field.name}` : field.name,
@@ -1174,12 +1212,19 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
    * that condition where it is tested (`if (!ok) throw ...;`), as long as neither the variable nor
    * anything it reads has been assigned since. Quoted text is left alone; one level only.
    */
+  const MAX_EXPANDED = 1000;
+  const MAX_EXPANDED_NAMES = 8;
   function expandConditions(text: string, ctx: Context): string {
     if (text.length > 600) return text;
-    return text.replace(
+    // The result is capped (a test that names many conditions of 300 characters each would grow
+    // to tens of kilobytes): past the cap nothing is expanded and the finding stays as it is.
+    let grown = text.length;
+    let expanded = 0;
+    let over = false;
+    const result = text.replace(
       /"(?:[^"\\]|\\.)*"|(?<![\w.$])([A-Za-z_]\w*)(?![\w$(])/g,
       (all, name: string | undefined) => {
-        if (name === undefined) return all;
+        if (name === undefined || over) return all;
         const binding = ctx.scope.find(name);
         if (
           binding?.boolText === undefined ||
@@ -1188,9 +1233,16 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
         ) {
           return all;
         }
+        grown += binding.boolText.length + 2 - name.length;
+        expanded += 1;
+        if (grown > MAX_EXPANDED || expanded > MAX_EXPANDED_NAMES) {
+          over = true;
+          return all;
+        }
         return `(${binding.boolText})`;
       },
     );
+    return over ? text : result;
   }
 
   /** A short condition kept in a local (`val ok = ...`): its text and the variables it reads, as they are now. */
@@ -1324,6 +1376,29 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
         (name) => name === `${pkg}.${simple}` || name === `${pkg}.*` || name === `${pkg}.`,
       ),
     );
+  }
+
+  /**
+   * The element type of a typed collection, when it can say the elements are not archive entries:
+   * not a type parameter (`List<T>`), and, if the file declares it, with no archive supertype
+   * (`class Item : ZipEntry`).
+   */
+  function ruledOutElement(collectionType: string | null): string | null {
+    const element = elementTypeOf(collectionType);
+    if (element === null) return null;
+    const simple = element.slice(element.lastIndexOf(".") + 1);
+    if (/^[A-Z][A-Z0-9]?$/.test(simple)) return null;
+    const seen = new Set<string>();
+    const stack = [simple];
+    while (stack.length > 0 && seen.size < 24) {
+      const name = stack.pop() as string;
+      if (seen.has(name)) continue;
+      seen.add(name);
+      // A class of the file that extends an archive entry is one.
+      if (ARCHIVE_ENTRY_TYPE.test(name) && name !== simple) return name;
+      for (const sup of classByName.get(name)?.supers ?? []) stack.push(baseType(sup));
+    }
+    return element;
   }
 
   function checkSink(expr: Extract<Expr, { k: "call" }>, args: Value[], ctx: Context): void {
@@ -1722,7 +1797,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
             // Kotlin `for (entry in logs)`: the loop variable has the element type of a typed list.
             const eachType =
               stmt.each.type === null || /^(?:var|val)$/.test(stmt.each.type)
-                ? (elementTypeOf(typeOfExpr(stmt.each.iter, loopCtx)) ?? stmt.each.type)
+                ? (ruledOutElement(typeOfExpr(stmt.each.iter, loopCtx)) ?? stmt.each.type)
                 : stmt.each.type;
             declare(
               loopCtx,

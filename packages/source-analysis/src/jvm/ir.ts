@@ -142,6 +142,11 @@ export interface Unit {
   classes: ClassInfo[];
   /** Kotlin top-level declarations (and the file scope for lookups). */
   top: ClassInfo;
+  /**
+   * How often each name is followed by an assignment operator anywhere in the file's text
+   * (declarations, comments and strings included: an over-count only keeps a finding).
+   */
+  assignCounts?: Map<string, number>;
   /** The file's `import` names, as written (`java.sql.Statement`, `org.foo.*`). */
   imports: string[];
   /** Kotlin `import a.b.C as D`: `D` -> `C`. */

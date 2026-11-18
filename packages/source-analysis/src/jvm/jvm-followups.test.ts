@@ -360,3 +360,92 @@ describe("PG-SQL-005: field values (#286 items 1 and 2)", () => {
     ).toBeGreaterThan(0);
   });
 });
+
+describe("review follow-ups (#286, #295)", () => {
+  const JDBC =
+    "import org.springframework.jdbc.core.JdbcTemplate;\nimport java.util.*;\nimport org.springframework.web.bind.annotation.*;\n";
+  const sql = (analysis: Analysis): number => of(analysis, SQL).length;
+  const field = (head: string, extra = ""): string =>
+    `${JDBC}${head}\nclass A {\nprivate JdbcTemplate jdbc;\nprivate String table = "users"; ${extra} Object q(@RequestParam String id) { return jdbc.queryForList("select * from " + table + " where id = ?", id); }\n}\n`;
+
+  it("still treats a private literal String as text when nothing assigns it", async () => {
+    expect(sql(await run(field("")))).toBe(0);
+  });
+
+  it.each([
+    [
+      "an anonymous class",
+      "",
+      "void s(String t) { new Thread(new Runnable() { public void run() { table = t; } }).start(); }",
+    ],
+    ["a local class", "", "void s(String t) { class L { void f() { table = t; } } new L().f(); }"],
+    ["Lombok @Builder", "@lombok.Builder", ""],
+    ["Lombok @AllArgsConstructor", "@lombok.AllArgsConstructor", ""],
+    ["Lombok @Value", "@lombok.Value", ""],
+    ["Lombok @With", "@lombok.With", ""],
+    ["a JPA entity", "@javax.persistence.Entity", ""],
+    ["a mapped superclass", "@jakarta.persistence.MappedSuperclass", ""],
+    ["an embeddable", "@javax.persistence.Embeddable", ""],
+    ["a Mongo document", "@org.springframework.data.mongodb.core.mapping.Document", ""],
+    [
+      "Jackson field visibility",
+      "@com.fasterxml.jackson.annotation.JsonAutoDetect(fieldVisibility = com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility.ANY)",
+      "",
+    ],
+  ])("keeps the finding when it may be assigned elsewhere: %s", async (_name, head, extra) => {
+    expect(sql(await run(field(head, extra)))).toBeGreaterThan(0);
+  });
+
+  it("keeps the finding for a field assigned in the nested class of an annotated outer class", async () => {
+    const source = `${JDBC}@lombok.Setter\nclass O {\nclass A {\nprivate JdbcTemplate jdbc;\nprivate String table = "users"; Object q(@RequestParam String id) { return jdbc.queryForList("select * from " + table + " where id = ?", id); }\n}\n}\n`;
+    expect(sql(await run(source))).toBeGreaterThan(0);
+  });
+
+  const K = (members: string): string =>
+    `import org.springframework.jdbc.core.JdbcTemplate\nclass K(private val jdbc: JdbcTemplate) {\n${members}\n  fun q() = jdbc.queryForList("select " + COLS.joinToString(",") + " from t")\n  companion object { val COLS = arrayOf("id", "name") }\n}\n`;
+  it("does not take a Kotlin arrayOf constant that a function returns for fixed text", async () => {
+    expect(sql(await run(K("  fun cols() = COLS"), "K.kt"))).toBeGreaterThan(0);
+    expect(
+      sql(await run(K("  fun cols(): Array<String> { return COLS }"), "K.kt")),
+    ).toBeGreaterThan(0);
+    expect(sql(await run(K(""), "K.kt"))).toBe(0);
+  });
+
+  const J = (members: string): string =>
+    `${JDBC}class A {\nprivate JdbcTemplate jdbc;\nstatic final String[] COLS = {"id", "name"}; ${members} Object q() { return jdbc.queryForList("select " + String.join(",", COLS) + " from t"); }\n}\n`;
+  it.each([
+    "static String[] cols(boolean b) { return b ? COLS : null; }",
+    "static List<String> cols() { return Arrays.asList(COLS); }",
+  ])("does not take an array exposed by %s for fixed text", async (members) => {
+    expect(sql(await run(J(members)))).toBeGreaterThan(0);
+  });
+
+  const KT_ENTRY = (decl: string, loop: string): string =>
+    `import java.io.File\nimport java.util.zip.ZipEntry\n${decl}\n${loop}\n`;
+  it("keeps a class that extends an archive entry, and a type parameter, as possible entries", async () => {
+    const sub = await run(
+      KT_ENTRY(
+        "class Item(n: String) : ZipEntry(n)",
+        "fun b(entries: List<Item>, dest: File) { for (entry in entries) { File(dest, entry.name).mkdirs() } }",
+      ),
+      "K.kt",
+    );
+    expect(of(sub, PATH).map((f) => f.confidence)).toEqual(["high"]);
+    const generic = await run(
+      KT_ENTRY(
+        "",
+        "fun <T> b(entries: List<T>, dest: File) { for (entry in entries) { File(dest, (entry as ZipEntry).name).mkdirs() } }",
+      ),
+      "K.kt",
+    );
+    expect(of(generic, PATH).length).toBeGreaterThan(0);
+    const other = await run(
+      KT_ENTRY(
+        "class Row(val name: String)",
+        "fun b(entries: List<Row>, dest: File) { for (entry in entries) { File(dest, entry.name).mkdirs() } }",
+      ),
+      "K.kt",
+    );
+    expect(of(other, PATH).every((f) => f.confidence === "low")).toBe(true);
+  });
+});

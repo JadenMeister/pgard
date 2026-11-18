@@ -7,7 +7,7 @@ import {
   PASSWORD_PROPERTY,
 } from "./jvm/crypto-rules.js";
 import { analyzeJsSource } from "./js/analyze-js.js";
-import { analyzeJvmTree } from "./jvm/analyze-jvm.js";
+import { analyzeJvmTree, assignCountsOf } from "./jvm/analyze-jvm.js";
 import { elementTypeOf } from "./jvm/flow-values.js";
 import { withoutTypeArguments } from "./jvm/kotlin-ir.js";
 import { TreeSitterRuntime } from "./tree-sitter/runtime.js";
@@ -126,6 +126,66 @@ describe("conditions kept in variables, field and receiver checks (#294, #295, #
       const { ms } = timed(() => analyzeJvmTree(outcome.tree.rootNode, source, "A.java", "java"));
       outcome.dispose();
       expect(ms).toBeLessThan(LIMIT_MS * 4);
+    } finally {
+      runtime.dispose();
+    }
+  });
+});
+
+describe("assignCountsOf (#286 review)", () => {
+  it("counts names followed by an assignment operator, not comparisons", () => {
+    const counts = assignCountsOf(
+      "a = 1; b += 2; c == 3; d <= 4; e != 5; this.f = 6; g -> 7; h >>= 1",
+    );
+    expect([...counts.entries()]).toEqual([
+      ["a", 1],
+      ["b", 1],
+      ["f", 1],
+      ["h", 1],
+    ]);
+  });
+
+  it("is linear on long identifiers, digits and whitespace runs", () => {
+    for (const input of [
+      "a".repeat(SIZE),
+      `${"a".repeat(SIZE)}=`,
+      "1".repeat(SIZE) + "a",
+      `a${" ".repeat(SIZE)}b`,
+      "a ".repeat(SIZE / 2),
+      "a=".repeat(SIZE / 2),
+    ]) {
+      const { ms } = timed(() => assignCountsOf(input));
+      expect(ms).toBeLessThan(LIMIT_MS);
+    }
+  });
+});
+
+describe("condition expansion is capped (#295 review)", () => {
+  it("does not grow a test that names many long conditions, and keeps the finding", async () => {
+    const runtime = new TreeSitterRuntime();
+    try {
+      const long = `q.startsWith("${"x".repeat(230)}") && q.contains("y")`;
+      const decl = Array.from({ length: 150 }, (_, i) => `boolean a${i} = ${long};`).join("\n");
+      const names = Array.from({ length: 150 }, (_, i) => `a${i}`)
+        .join("&&")
+        .slice(0, 590)
+        .replace(/&&?a?\d*$/, "");
+      const tests = Array.from(
+        { length: 300 },
+        () => `if (!(${names})) throw new IllegalStateException();`,
+      ).join("\n");
+      const source = `import org.springframework.web.bind.annotation.*;\nimport org.springframework.jdbc.core.JdbcTemplate;\nclass A { JdbcTemplate jdbc;\n@GetMapping("/x") void h(@RequestParam String q) {\n${decl}\n${tests}\njdbc.queryForList("select " + q);\n}\n}\n`;
+      const outcome = await runtime.parse("java", source);
+      if (outcome.status !== "parsed") throw new Error(`not parsed: ${outcome.status}`);
+      const { value, ms } = timed(() =>
+        analyzeJvmTree(outcome.tree.rootNode, source, "A.java", "java"),
+      );
+      outcome.dispose();
+      expect(ms).toBeLessThan(LIMIT_MS * 2);
+      // Past the cap nothing is expanded, so the finding is not silenced.
+      expect(value.findings.some((f) => f.ruleId === "PG-SQL-005" && f.confidence === "high")).toBe(
+        true,
+      );
     } finally {
       runtime.dispose();
     }

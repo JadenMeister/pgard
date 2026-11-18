@@ -84,6 +84,18 @@ export function importAliasesOf(source: string): Map<string, string> {
 }
 
 /** The imports of a file, as written (`java.sql.Statement`, `org.springframework.jdbc.core.*`). */
+/** `name =`, `name +=`, `a.name =`: every identifier followed by an assignment operator (not `==`, `<=`, `!=`, `=>`). */
+export function assignCountsOf(source: string): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const match of source.matchAll(
+    /(?<![\w$])([A-Za-z_$][\w$]*)[^\S\n]*(?:<<|>>>?|[-+*/%&|^])?=(?![=>])/g,
+  )) {
+    const name = match[1] as string;
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return counts;
+}
+
 export function importsOf(source: string): string[] {
   const out: string[] = [];
   for (const match of source.matchAll(IMPORT)) out.push(match[1] as string);
@@ -113,6 +125,7 @@ export function analyzeJvmTree(
   const ast = toAst(root, source);
   const unit = language === "java" ? convertJava(ast) : convertKotlin(ast);
   unit.imports = importsOf(source);
+  unit.assignCounts = assignCountsOf(source);
   unit.aliases = importAliasesOf(source);
   const sql = analyzeSql(unit);
   const security = analyzeSpringSecurity(unit);

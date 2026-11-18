@@ -853,7 +853,10 @@ export function convertKotlin(ast: AstResult): Unit {
     for (const specifiers of node.children) {
       if (specifiers.type !== "delegation_specifiers") continue;
       for (const specifier of specifiers.children) {
-        const type = specifier.children.find((child) => child.type === "user_type");
+        // `: Base(args)` wraps the type in a constructor invocation.
+        const holder =
+          specifier.children.find((child) => child.type === "constructor_invocation") ?? specifier;
+        const type = holder.children.find((child) => child.type === "user_type");
         if (type !== undefined) info.supers.push(simple(withoutTypeArguments(text(type))));
       }
     }
