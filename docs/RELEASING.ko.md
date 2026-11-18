@@ -66,7 +66,7 @@ PGARD는 [유의적 버전(SemVer)](https://semver.org/lang/ko/)을 따릅니다
    - `site/index.html`과 `site/ko/index.html`의 랜딩 페이지 표기(히어로의 `vX.Y.Z`와 `rules list` 샘플 헤더 `pgard X.Y.Z - detection criteria …`). 패키지 버전이나 `RULE_CRITERIA_VERSION`과 다르면 `npm run site-version:check`가 실패합니다. CI와 `npm test`에서 실행되므로 릴리스 워크플로의 verify 작업도 실패해, 사이트가 낡았으면 릴리스와 드라이런이 막힙니다. 사이트는 `main`에서 배포되므로 릴리스 PR을 머지하면 배포 전에 새 버전이 사이트에 먼저 보입니다. 머지 직후 바로 배포하세요.
 4. **`CHANGELOG.md`를 갱신합니다.** `## [Unreleased]` 내용을 `## [X.Y.Z] - YYYY-MM-DD`로 옮기고 비어 있는 `## [Unreleased]`를 새로 두며 하단 비교 링크를 갱신합니다. 항목은 Added, Changed, Fixed, Security(필요하면 Removed, Deprecated)로 묶고, 호환성을 깨는 변경에는 **BREAKING**을 붙입니다.
 5. `chore(release): vX.Y.Z` **PR**을 이 변경만으로 열고 리뷰한 뒤 머지합니다. 그 전에 로컬에서 `npm run check`, `npm run corpus:check`, `npm run pack:pgard`, `npm run smoke:pack`을 실행합니다.
-6. **드라이런(권장).** Actions, `release`, Run workflow에서 `main`을 고르고 버전을 입력하고 `dry_run`을 켭니다. 모든 검증과 `npm publish --dry-run`을 실행하며 아무것도 배포되지 않습니다. 드라이런도 `publish` 작업을 거치므로 **`npm-publish` 승인을 기다리고 OIDC 토큰도 요청합니다.** `publish-github` 작업(역시 `npm publish --dry-run`만 실행)은 승인을 한 번 더 요청합니다. 브랜치에서의 수동 실행은 드라이런만 가능하며 실제 배포에는 태그가 필요합니다.
+6. **드라이런(권장).** Actions, `release`, Run workflow에서 `main`을 고르고 버전을 입력하고 `dry_run`을 켭니다. 모든 검증과 `npm publish --dry-run`을 실행하며 아무것도 배포되지 않습니다. 드라이런도 `publish` 작업을 거치므로 **`npm-publish` 승인을 기다리고 OIDC 토큰도 요청합니다.** `publish-github` 작업(역시 `npm publish --dry-run`만 실행)은 승인을 한 번 더 요청합니다. 실제로는 `main`만 실행할 수 있습니다. merge-base 검사 때문에, 브랜치의 HEAD가 이미 `main`에 들어 있지 않으면 다른 브랜치의 드라이런은 실패합니다. 실제 배포에는 태그가 필요합니다.
 7. **태그.** `main`의 머지된 커밋에서 `git tag -a vX.Y.Z -m "pgard X.Y.Z"`, `git push origin vX.Y.Z`. 태그는 `v` + 정확한 버전(`v0.1.0`, `v0.2.0-rc.1`)이며, 패키지 버전과 다르면 워크플로가 거부합니다.
 8. **승인.** `verify` 작업이 빌드, 검사를 실행하고 tarball을 올립니다. 이어서 `publish` 작업이 `npm-publish` 환경에서 대기합니다. 필수 검토자가 실행 화면에서 태그, 커밋, verify 결과가 의도한 것인지 확인하고 승인합니다. 배포 작업은 tarball 체크섬을 verify 작업의 값과 대조한 뒤 `npm publish <tarball> --provenance --access public`을 실행합니다.
    이어서 `publish-github` 작업이 시작됩니다(아래 "GitHub Packages 사본"). 같은 `npm-publish` 환경을 쓰므로 릴리스마다 `npm-publish` 승인을 한 번 더 요청합니다. 그 승인을 하지 않으면 npm에는 버전이 있지만 GitHub Packages에는 없는 상태가 됩니다. 승인하거나 Actions 화면에서 `publish-github` 작업을 다시 실행해 마무리하세요.
@@ -136,6 +136,6 @@ npm view pgard dist-tags              # latest는 X.Y.Z여야 함(사전 릴리�
 npm deprecate pgard@X.Y.Z "Broken: use X.Y.Z+1 (reason: ...)"
 ```
 
-`npm deprecate`와 `npm dist-tag`는 OIDC 배포 설정으로 처리되지 않습니다. 관리자가 로컬에서 대화형 `npm login`(2FA 포함) 후 실행합니다.
+`npm deprecate`와 `npm dist-tag`는 dist-tag 권한을 체크하지 않으면 OIDC 배포 설정으로 처리되지 않고, 체크하더라도 CI에서만 쓸 수 있습니다. 관리자가 로컬에서 대화형 `npm login`(2FA 포함) 후 실행합니다.
 
-그다음 정상 체크리스트로 패치 릴리스(`X.Y.Z+1`)를 내어 앞으로 고칩니다. `latest`가 나쁜 버전을 가리켜 이전의 좋은 버전을 먼저 복원해야 한다면 `npm dist-tag add pgard@<좋은 버전> latest`로 되돌립니다(배포 권한이 있는 관리자 로그인 필요. npm CLI 11.21.0 이상에서는 해당 권한을 체크한 경우 trusted publisher도 dist-tag를 관리할 수 있습니다). 비밀 값 유출이나 보안 문제라면 deprecate하고, 수정 버전을 내고, 변경 기록의 Security에 밝힙니다. Homebrew tap은 수정된 버전으로 갱신하거나 마지막 커밋을 되돌립니다.
+그다음 정상 체크리스트로 패치 릴리스(`X.Y.Z+1`)를 내어 앞으로 고칩니다. `latest`가 나쁜 버전을 가리켜 이전의 좋은 버전을 먼저 복원해야 한다면 `npm dist-tag add pgard@<좋은 버전> latest`로 되돌립니다(배포 권한이 있는 관리자 로그인 필요. npm CLI 11.21.0 이상에서는 해당 권한을 체크하면 trusted publisher도 dist-tag를 관리할 수 있지만, CI에서만 가능합니다). 비밀 값 유출이나 보안 문제라면 deprecate하고, 수정 버전을 내고, 변경 기록의 Security에 밝힙니다. Homebrew tap은 수정된 버전으로 갱신하거나 마지막 커밋을 되돌립니다.

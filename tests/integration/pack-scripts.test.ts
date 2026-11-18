@@ -139,6 +139,60 @@ describe("unverifiable module loading", () => {
 describe("unverifiable module loading in bundled third-party code", () => {
   const module = (name: string, body: string) => `// ${name}\n${body}`;
 
+  it.each([
+    "const l = require; l(p);",
+    "const l = __require;",
+    "var load = opts.load || __require;",
+    "run(require);",
+    "return __require",
+    "x = cond ? require : other;",
+  ])("mutation: require used as a value is reported: %s", (code) => {
+    const found = findDynamicCodeUses("a.js", module("node_modules/evil/index.js", code));
+    expect(found).toEqual([expect.stringContaining("require as a value")]);
+  });
+
+  it.each([
+    'typeof require !== "undefined"',
+    'var fs = __require("fs");',
+    "// a package may require a license",
+    'throw new Error("you must require a login");',
+    "const v = obj.require;",
+    "const cfg = { require: true };",
+  ])("a call, a property or prose is not a value use: %s", (code) => {
+    expect(findDynamicCodeUses("a.js", module("node_modules/x/index.js", code))).toEqual([]);
+  });
+
+  it.each([
+    "const p = require.resolve(name);",
+    "delete require.cache[key];",
+    "var m = __require.resolve(name);",
+    "const e = require.extensions;",
+  ])("mutation: plain and underscored require members are reported: %s", (code) => {
+    const found = findDynamicCodeUses("a.js", module("node_modules/evil/index.js", code));
+    expect(found).toEqual([expect.stringContaining("require.cache/resolve")]);
+  });
+
+  it("a string that looks like dynamic code is reported until it is allowed by exact line", () => {
+    const code = module("node_modules/x/msg.js", 'const hint = "Avoid dynamic import(userInput)";');
+    expect(findDynamicCodeUses("a.js", code)).toHaveLength(1);
+    const allowed = [
+      {
+        module: "x/msg.js",
+        line: /^const hint = "Avoid dynamic import\(userInput\)";$/,
+        why: "message text",
+      },
+    ];
+    expect(findDynamicCodeUses("a.js", code, allowed)).toEqual([]);
+  });
+
+  it("an entry with an empty module matches only code without a module header", () => {
+    const allowed = [{ module: "", line: /^run\(require\);$/, why: "runtime helper" }];
+    expect(findDynamicCodeUses("a.js", "run(require);", allowed)).toEqual([]);
+    expect(
+      findDynamicCodeUses("a.js", module("node_modules/x/i.js", "run(require);"), allowed),
+    ).toHaveLength(1);
+  });
+
   it("accepts the banner and literal built-in requires", () => {
     const code = `${REQUIRE_BANNER}\n${module("node_modules/x/index.js", 'var fs = __require("fs");')}`;
     expect(findDynamicCodeUses("a.js", code)).toEqual([]);
@@ -376,5 +430,7 @@ describe("shipped grammars README", () => {
     const shipped = shippedGrammarsReadme(readme);
     expect(shipped).toContain("in the source repository");
     expect(shipped).not.toContain("(`src/tree-sitter/languages.ts`)");
+    expect(shipped).not.toMatch(/a test keeps|re-run the tests/);
+    expect(shipped).toContain("tests in the source repository");
   });
 });

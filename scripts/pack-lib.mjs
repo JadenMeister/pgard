@@ -77,10 +77,29 @@ export function findExternalViolations(metafile, dependencies, { allowBareBuilti
 
 /**
  * Bundled third-party code that loads modules or files by a computed path. Each entry names the
- * module (a substring of the `// node_modules/...` path esbuild writes above each module), a
+ * module (a substring of the `// node_modules/...` path esbuild writes above each module; `""`
+ * means code with no such header, i.e. esbuild's runtime helpers), a
  * pattern for the exact line, and why it cannot run in PGARD. Anything not listed fails the pack.
  */
 export const ALLOWED_DYNAMIC_USES = [
+  // esbuild's own runtime helper (no `// node_modules/...` header; `module: ""` matches only
+  // code with no owner). It resolves a bundled CommonJS `require` of an external module to
+  // the banner's `require`; the specifier is still checked at each call site and in the metafile.
+  {
+    module: "",
+    line: /^var __require = \/\* @__PURE__ \*\/ \(\(x\) => typeof require !== "undefined" \? require : typeof Proxy !== "undefined" \? new Proxy\(x, \{$/,
+    why: "esbuild's __require shim picks the banner's require; it loads nothing by itself",
+  },
+  {
+    module: "",
+    line: /^\s*get: \(a, b\) => \(typeof require !== "undefined" \? require : a\)\[b\]$/,
+    why: "part of esbuild's __require shim",
+  },
+  {
+    module: "",
+    line: /^\s*if \(typeof require !== "undefined"\) return require\.apply\(this, arguments\);$/,
+    why: "part of esbuild's __require shim; the call sites are scanned on their own",
+  },
   // typescript-api/lib/typescript.js. PGARD only parses in memory (createSourceFile, and
   // createProgram with noLib/noResolve and an in-memory host), so none of these can run.
   {
@@ -107,6 +126,11 @@ export const ALLOWED_DYNAMIC_USES = [
     module: "typescript-api/lib/typescript.js",
     line: /^\s*(?:This_use_of_import_is_invalid_import_calls_can_be_written_but_they_must_have_parentheses_and_cannot_have_type_arguments|The_import_meta_meta_property_is_only_allowed_when_the_module_option_is_es2020_es2022_esnext_system_node16_node18_node20_or_nodenext|The_import_meta_meta_property_is_not_allowed_in_files_which_will_build_into_CommonJS_output|auto_Colon_Treat_files_with_imports_exports_import_meta_jsx_with_jsx_Colon_react_jsx_or_esm_format_with_module_Colon_node16_as_modules|_0_can_only_be_imported_by_using_import_1_require_2_or_a_default_import|_0_can_only_be_imported_by_using_import_1_require_2_or_by_turning_on_the_esModuleInterop_flag_and_using_a_default_import): diag\(\d+, \d, "/,
     why: "diagnostic message definitions (text about import(), import.meta and require)",
+  },
+  {
+    module: "typescript-api/lib/typescript.js",
+    line: /^\s*\/\/     function \(require, exports(?:, module1, module2)?\) \.\.\.$/,
+    why: "a comment describing generated code",
   },
   {
     module: "typescript-api/lib/typescript.js",
@@ -167,6 +191,11 @@ export const ALLOWED_DYNAMIC_USES = [
   },
   {
     module: "@vue/compiler-sfc/dist/compiler-sfc.cjs.js",
+    line: /^\s*var (?:scss|less|styl) = \(source, map, options, load = __require\) => \{$/,
+    why: "default loader of the CSS preprocessor wrappers; parse() never reaches the style preprocessors",
+  },
+  {
+    module: "@vue/compiler-sfc/dist/compiler-sfc.cjs.js",
     line: /^\s*delete __require\.cache\[path3\];$/,
     why: "cache bust of a CSS preprocessor config file; parse() never reaches the style preprocessors",
   },
@@ -190,10 +219,16 @@ export const ALLOWED_DYNAMIC_USES = [
 
 /**
  * Scans bundle text for module or file loading that bundling would break or the metafile cannot
- * see: `import(` with a non-literal argument, `require(` with a non-literal argument, `createRequire`
- * (except the banner), `require.cache`/`require.resolve`, and `__dirname`, `__filename` and
+ * see: `import(` with a non-literal argument, `require(` with a non-literal argument, `require`
+ * used as a value (`const l = require; l(p)`), `createRequire` (except the banner), any
+ * `require.` member (`require.resolve`, `require.cache`, ...), and `__dirname`, `__filename` and
  * `import.meta` in third-party modules. A hit is accepted only if `allowed` has an entry for the
  * module and line. Returns one message per unaccepted use.
+ *
+ * The scan is line-based and does not parse strings or comments, so a string such as
+ * "Avoid dynamic import(userInput)" is reported like code. That is deliberate: a tokenizer
+ * that skipped strings could also skip a string handed to a code loader, and a false positive
+ * only costs one reviewed `ALLOWED_DYNAMIC_USES` entry (exact module and line, with a `why`).
  */
 export function findDynamicCodeUses(file, code, allowed = ALLOWED_DYNAMIC_USES) {
   const found = [];
@@ -204,7 +239,8 @@ export function findDynamicCodeUses(file, code, allowed = ALLOWED_DYNAMIC_USES) 
     const header = /^\/\/ ((?:node_modules|packages|apps)\/\S+)$/.exec(text);
     if (header !== null) owner = header[1];
     const report = (what) => {
-      if (allowed.some((entry) => owner.includes(entry.module) && entry.line.test(text))) return;
+      const owned = (module) => (module === "" ? owner === "" : owner.includes(module));
+      if (allowed.some((entry) => owned(entry.module) && entry.line.test(text))) return;
       found.push(`${file}:${index + 1} ${what}${owner === "" ? "" : ` (in ${owner})`}`);
     };
     for (const match of text.matchAll(/\b(?:import|(?:__)?require)\s*\(/g)) {
@@ -215,8 +251,14 @@ export function findDynamicCodeUses(file, code, allowed = ALLOWED_DYNAMIC_USES) 
       }
     }
     if (/\bcreateRequire\b/.test(text)) report("uses createRequire");
-    if (/\b__?require\.(?:cache|resolve|main|extensions)\b/.test(text)) {
-      report("uses require.cache/resolve");
+    // ESM-origin modules use the banner's plain `require`; bundled CommonJS uses `__require`.
+    if (/\b(?:__)?require\./.test(text)) report("uses require.cache/resolve");
+    // `require` as a value (aliased, passed on or returned) hides the specifier of a later call.
+    // Matched by its position, not by the word, so prose in strings and comments ("require a
+    // license") does not hit: an operand after `= ( , [ ? : | & return`, ended by `; , ) ] } ? : | &`
+    // or the end of the line. A call, a member access and `typeof require` do not match.
+    if (/(?:[=(,[?:|&]|\breturn)\s*(?:__)?require\s*(?:[;,)\]}?:|&]|$)/.test(text)) {
+      report("uses require as a value (aliased or passed on)");
     }
     if (/\b__(?:dirname|filename)\b|\bimport\.meta\b/.test(text)) {
       // PGARD's own modules (packages/..., apps/...) are covered by the asset rewrites and smoke test.
@@ -235,11 +277,22 @@ export function findDynamicCodeUses(file, code, allowed = ALLOWED_DYNAMIC_USES) 
 export function shippedGrammarsReadme(text) {
   const from = "(`src/tree-sitter/languages.ts`)";
   if (!text.includes(from)) throw new Error("grammars README no longer names languages.ts");
-  const out = text
+  let out = text
     .split(from)
     .join(
       "(compiled into `dist/`; source: `packages/source-analysis/src/tree-sitter/languages.ts` in the source repository)",
     );
+  // The tests are repository-only: the package ships none.
+  const replaceTests = (from, to) => {
+    if (!out.includes(from))
+      throw new Error(`grammars README no longer contains ${JSON.stringify(from)}`);
+    out = out.split(from).join(to);
+  };
+  replaceTests(
+    "and a test keeps this table in agreement with it.",
+    "and the source repository's tests keep this table in agreement with it.",
+  );
+  replaceTests("and re-run the tests.", "and run the tests in the source repository.");
   return out;
 }
 
