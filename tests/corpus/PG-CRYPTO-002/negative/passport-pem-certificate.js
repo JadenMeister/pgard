@@ -5,4 +5,4 @@ const CERT = `-----BEGIN CERTIFICATE-----
 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A
 -----END CERTIFICATE-----`;
 
-module.exports = new Strategy({ secretOrKey: CERT, jwtFromRequest: extract }, verify);
+module.exports = new Strategy({ secretOrKey: CERT, algorithms: ["RS256"], jwtFromRequest: extract }, verify);

@@ -1398,6 +1398,7 @@ export function analyzeJsSource(
     if (
       ts.isCallExpression(node) &&
       accessPath(node.expression) === "Buffer.from" &&
+      bindingCount.get("Buffer") === undefined &&
       node.arguments[0] &&
       fixedString(node.arguments[0]) !== null
     )
@@ -1457,6 +1458,37 @@ export function analyzeJsSource(
    * constant object literal in this file. A spread, a duplicate key or a computed key makes the
    * lookup ambiguous (null). Objects from another file are out of reach.
    */
+  /**
+   * Property initializers by key, built once per object literal. Null when a key cannot be
+   * resolved statically (spread, computed or method members); a duplicated key maps to nothing.
+   */
+  const objectKeyCache = new WeakMap<
+    ts.ObjectLiteralExpression,
+    Map<string, ts.Expression> | null
+  >();
+  const objectKeysOf = (object: ts.ObjectLiteralExpression): Map<string, ts.Expression> | null => {
+    if (objectKeyCache.has(object)) return objectKeyCache.get(object) ?? null;
+    const keys = new Map<string, ts.Expression>();
+    const duplicated = new Set<string>();
+    let usable = true;
+    for (const property of object.properties) {
+      const name = property.name;
+      if (ts.isSpreadAssignment(property) || !name || ts.isComputedPropertyName(name)) {
+        usable = false;
+        break;
+      }
+      const text = ts.isIdentifier(name) || ts.isStringLiteralLike(name) ? name.text : null;
+      if (text === null) continue;
+      if (keys.has(text)) duplicated.add(text);
+      if (ts.isPropertyAssignment(property)) keys.set(text, property.initializer);
+      else if (ts.isShorthandPropertyAssignment(property)) keys.set(text, property.name);
+      else duplicated.add(text);
+    }
+    for (const text of duplicated) keys.delete(text);
+    const result = usable ? keys : null;
+    objectKeyCache.set(object, result);
+    return result;
+  };
   const constObjectProperty = (
     node: ts.Expression,
   ): { value: ts.Expression; path: string } | null => {
@@ -1475,24 +1507,17 @@ export function analyzeJsSource(
     if (!ts.isIdentifier(target)) return null;
     const object = soleConstObject(target);
     if (!object) return null;
-    let found: ts.Expression | null = null;
-    for (const property of (unwrap(object) as ts.ObjectLiteralExpression).properties) {
-      if (ts.isSpreadAssignment(property)) return null;
-      const name = property.name;
-      if (!name) return null;
-      if (ts.isComputedPropertyName(name)) return null;
-      const text = ts.isIdentifier(name) || ts.isStringLiteralLike(name) ? name.text : null;
-      if (text !== key) continue;
-      if (found) return null;
-      if (ts.isPropertyAssignment(property)) found = property.initializer;
-      else if (ts.isShorthandPropertyAssignment(property)) found = property.name;
-      else return null;
-    }
+    const found = objectKeysOf(unwrap(object) as ts.ObjectLiteralExpression)?.get(key) ?? null;
     return found ? { value: found, path: `${target.text}.${key}` } : null;
   };
-  /** A PEM public key or certificate: public material, not a secret, when it is only verified. */
-  const PUBLIC_PEM = /^\s*-----BEGIN (?:(?:RSA |EC )?PUBLIC KEY|CERTIFICATE)-----/;
-  const isPublicMaterial = (expression: ts.Expression | undefined, depth = 0): boolean => {
+  /**
+   * A well-formed PEM public key or certificate and nothing else: start and end markers of the same
+   * kind, a base64 body between, no PRIVATE block and no other text before, between or after.
+   */
+  const PUBLIC_PEM =
+    /^\s*(?:-----BEGIN (PUBLIC KEY|RSA PUBLIC KEY|EC PUBLIC KEY|CERTIFICATE)-----[A-Za-z0-9+/=\s\\]*-----END \1-----\s*)+$/;
+  /** A string constant holding only a public PEM; a Buffer or Uint8Array of it is a raw key, not this. */
+  const isPublicPem = (expression: ts.Expression | undefined, depth = 0): boolean => {
     if (!expression || depth > 4) return false;
     let node = unwrap(expression);
     if (
@@ -1503,33 +1528,46 @@ export function analyzeJsSource(
       node = unwrap(node.right);
     if (ts.isIdentifier(node)) {
       const init = soleConst(node.text, node);
-      return init ? isPublicMaterial(init, depth + 1) : false;
+      return init ? isPublicPem(init, depth + 1) : false;
     }
     const property = constObjectProperty(node);
-    if (property) return isPublicMaterial(property.value, depth + 1);
-    if (
-      ts.isCallExpression(node) &&
-      node.arguments[0] &&
-      (accessPath(node.expression) === "Buffer.from" ||
-        (ts.isPropertyAccessExpression(node.expression) &&
-          node.expression.name.text === "encode" &&
-          ts.isNewExpression(unwrap(node.expression.expression))))
-    )
-      return isPublicMaterial(node.arguments[0], depth + 1);
+    if (property) return isPublicPem(property.value, depth + 1);
     const text = fixedString(node);
     return text !== null && PUBLIC_PEM.test(text.text);
   };
+  /** What the `algorithms` option of a verifying call allows. */
+  const algorithmsOf = (options: ts.Expression | undefined): "asymmetric" | "hmac" | "unknown" => {
+    const list = optionOf(options, "algorithms");
+    const array = list ? unwrap(list) : null;
+    if (!array || !ts.isArrayLiteralExpression(array) || array.elements.length === 0)
+      return "unknown";
+    const names = array.elements.map((element) =>
+      ts.isStringLiteralLike(unwrap(element))
+        ? (unwrap(element) as ts.StringLiteralLike).text
+        : null,
+    );
+    if (names.some((name) => name === null)) return "unknown";
+    if (names.some((name) => /^(HS\d+|none)$/i.test(name as string))) return "hmac";
+    return names.every((name) => /^((RS|ES|PS)\d+|EdDSA)$/.test(name as string))
+      ? "asymmetric"
+      : "unknown";
+  };
   /**
    * `literalValue`, also following a sole-binding constant (`jwt.sign(p, SECRET)`) and a property
-   * of a same-file constant object (`cfg.secret`). For a verifying call (`verifying`), a PEM public
-   * key or certificate is public material, not a secret: it is not reported.
+   * of a same-file constant object (`cfg.secret`). For a verifying call, a PEM public key or
+   * certificate is public material, not a secret, but only when the call clearly uses an
+   * asymmetric algorithm: with HS* allowed it is the HMAC secret of an algorithm-confusion attack
+   * (reported as before), and with the algorithm unpinned or unreadable it is reported low.
    */
   const fixedKey = (
     expression: ts.Expression | undefined,
-    verifying = false,
-  ): { kind: "literal" | "fallback"; via: string | null } | null => {
+    verifying: { options: ts.Expression | undefined } | false = false,
+  ): { kind: "literal" | "fallback" | "public-unpinned"; via: string | null } | null => {
     const found = fixedKeyOf(expression);
-    return found && verifying && isPublicMaterial(expression) ? null : found;
+    if (!found || !verifying || !isPublicPem(expression)) return found;
+    const algorithms = algorithmsOf(verifying.options);
+    if (algorithms === "asymmetric") return null;
+    return algorithms === "hmac" ? found : { kind: "public-unpinned", via: found.via };
   };
   const fixedKeyOf = (
     expression: ts.Expression | undefined,
@@ -1553,7 +1591,7 @@ export function analyzeJsSource(
 
   const reportHardcodedKey = (
     node: ts.Node,
-    key: { kind: "literal" | "fallback"; via: string | null },
+    key: { kind: "literal" | "fallback" | "public-unpinned"; via: string | null },
     where: string,
   ) => {
     const { kind } = key;
@@ -1561,19 +1599,26 @@ export function analyzeJsSource(
     report(
       "PG-CRYPTO-002",
       node,
-      kind === "literal"
+      kind === "public-unpinned"
         ? {
-            severity: "high",
-            status: "confirmed",
-            confidence: "high",
-            flow: `string literal (value redacted)${held} used as ${where}`,
-          }
-        : {
-            severity: "medium",
+            severity: "low",
             status: "suspected",
-            confidence: "medium",
-            flow: `hardcoded fallback literal (value redacted)${held} used as ${where} when the environment value is missing`,
-          },
+            confidence: "low",
+            flow: `PEM public key (value redacted)${held} used as ${where} without a pinned asymmetric algorithm: with an HS* algorithm it is a forgeable HMAC secret (set algorithms: ["RS256"] or similar)`,
+          }
+        : kind === "literal"
+          ? {
+              severity: "high",
+              status: "confirmed",
+              confidence: "high",
+              flow: `string literal (value redacted)${held} used as ${where}`,
+            }
+          : {
+              severity: "medium",
+              status: "suspected",
+              confidence: "medium",
+              flow: `hardcoded fallback literal (value redacted)${held} used as ${where} when the environment value is missing`,
+            },
       where,
     );
   };
@@ -1667,7 +1712,10 @@ export function analyzeJsSource(
       (resolved !== null && resolved.module === "jsonwebtoken") ||
       (receiverPath !== null && /^(jwt|jsonwebtoken)$/.test(receiverPath));
     if (isJwt && (member === "sign" || member === "verify")) {
-      const kind = fixedKey(call.arguments[1], member === "verify");
+      const kind = fixedKey(
+        call.arguments[1],
+        member === "verify" && { options: call.arguments[2] },
+      );
       if (kind) reportHardcodedKey(call, kind, `JWT ${member} secret`);
     }
     // jose: `new SignJWT(claims)....sign(key)` and `jwtVerify(token, key)`.
@@ -1683,14 +1731,18 @@ export function analyzeJsSource(
       if (kind) reportHardcodedKey(call, kind, "JWT sign secret");
     }
     if (name === "jwtVerify" && resolved?.module === "jose") {
-      const kind = fixedKey(call.arguments[1], true);
+      const kind = fixedKey(call.arguments[1]);
       if (kind) reportHardcodedKey(call, kind, "JWT verify secret");
     }
   };
 
   /** The value of `key` in an options object literal (a shorthand `{ secret }` names the variable). */
   const optionOf = (options: ts.Expression | undefined, key: string): ts.Expression | undefined => {
-    const object = options ? unwrap(options) : null;
+    let object = options ? unwrap(options) : null;
+    if (object && ts.isIdentifier(object)) {
+      const named = soleConstObject(object);
+      object = named ? unwrap(named) : null;
+    }
     if (!object || !ts.isObjectLiteralExpression(object)) return undefined;
     for (const property of object.properties) {
       if (ts.isPropertyAssignment(property)) {
@@ -1737,7 +1789,9 @@ export function analyzeJsSource(
   const checkJwtOptions = (node: ts.CallExpression | ts.NewExpression) => {
     if (ts.isNewExpression(node)) {
       if (!isPassportJwtStrategy(node.expression)) return;
-      const kind = fixedKey(optionOf(node.arguments?.[0], "secretOrKey"), true);
+      const kind = fixedKey(optionOf(node.arguments?.[0], "secretOrKey"), {
+        options: node.arguments?.[0],
+      });
       if (kind) reportHardcodedKey(node, kind, "passport-jwt secretOrKey");
       return;
     }
@@ -1760,7 +1814,9 @@ export function analyzeJsSource(
           : undefined;
       const base = heritage?.arguments[0];
       if (!base || !isPassportJwtStrategy(base)) return;
-      const kind = fixedKey(optionOf(node.arguments[0], "secretOrKey"), true);
+      const kind = fixedKey(optionOf(node.arguments[0], "secretOrKey"), {
+        options: node.arguments[0],
+      });
       if (kind) reportHardcodedKey(node, kind, "passport-jwt secretOrKey");
       return;
     }

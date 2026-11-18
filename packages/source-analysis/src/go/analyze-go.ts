@@ -110,6 +110,7 @@ function parseParameterList(list: string): (string | null)[] {
 function parseSignature(signature: string): {
   declares: string[];
   params: (string | null)[];
+  results: string[];
   funcName: string | null;
   nameOffset: number;
 } {
@@ -142,8 +143,12 @@ function parseSignature(signature: string): {
   if (method) collect(groups[0]);
   collect(groups[paramsIndex]);
   collect(groups[paramsIndex + 1]);
+  const results = parseParameterList(groups[paramsIndex + 1] ?? "").filter(
+    (name): name is string => name !== null && name !== "_",
+  );
   return {
     declares,
+    results,
     params: named ? parseParameterList(groups[paramsIndex] ?? "") : [],
     funcName: named?.[2] ?? null,
     nameOffset: named ? (named[1] ?? "").length : 0,
@@ -174,19 +179,29 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
   const taintedIn = new Map<string, Set<number>>();
   let scopeAt = (_offset: number): number => -1;
   let scopeParent = (_scope: number): number => -1;
+  /** Same-file functions (by name) that return request input; a call to one is tainted. */
+  const taintedReturns = new Set<string>();
+  /** Signature names of spans whose callers cannot be followed: any taint of the name counts. */
+  const looseNames = new Map<number, Set<string>>();
+  /** The call-site pass did not settle: fall back to name-only taint for the whole file. */
+  let unsettled = false;
   const isTaintedName = (name: string, at: number | undefined): boolean => {
     const scopes = taintedIn.get(name);
     if (scopes === undefined) return false;
-    if (at === undefined || scopes.has(-1)) return true;
+    if (at === undefined || unsettled || scopes.has(-1)) return true;
     for (let scope = scopeAt(at); scope !== -1; scope = scopeParent(scope))
-      if (scopes.has(scope)) return true;
+      if (scopes.has(scope) || looseNames.get(scope)?.has(name)) return true;
     return false;
   };
   const referencesTainted = (expression: string, at: number | undefined) => {
-    if (taintedIn.size === 0) return false;
-    for (const match of expression.matchAll(IDENTIFIER_TOKENS)) {
-      if (isTaintedName(match[0], at)) return true;
-    }
+    if (taintedIn.size === 0 && taintedReturns.size === 0) return false;
+    if (taintedIn.size > 0)
+      for (const match of expression.matchAll(IDENTIFIER_TOKENS)) {
+        if (isTaintedName(match[0], at)) return true;
+      }
+    if (taintedReturns.size > 0)
+      for (const match of expression.matchAll(/(?<![\w])([A-Za-z_]\w*)[ \t]*\(/g))
+        if (taintedReturns.has(match[1] ?? "")) return true;
     return false;
   };
   /** `at`: the offset of the use, to apply function scope; without it any scope counts. */
@@ -204,6 +219,8 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
     declares: string[];
     /** Parameters by position (null: unnamed); empty for a function literal. */
     params: (string | null)[];
+    /** Named results (a bare `return` returns them). */
+    results: string[];
     /** Name of a declared function or method; null for a function literal. */
     funcName: string | null;
     /** Offset of that name in the code. */
@@ -297,6 +314,7 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
           end: close,
           declares: parsed.declares,
           params: parsed.params,
+          results: parsed.results,
           funcName: parsed.funcName,
           nameOffset: at + 4 + parsed.nameOffset,
         });
@@ -505,36 +523,66 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
       if (declaredIn.get(scope)?.has(name)) return scope;
     return -1;
   };
-  const markTainted = (name: string, scope: number) => {
+  const markTainted = (name: string, scope: number): boolean => {
     let scopes = taintedIn.get(name);
     if (scopes === undefined) taintedIn.set(name, (scopes = new Set()));
+    if (scopes.has(scope)) return false;
     scopes.add(scope);
+    return true;
   };
   // A call of a function declared in this file taints the parameter that receives a tainted
-  // argument (inside that function only). Function literals have no name and are not followed.
+  // argument (inside that function only), and a function whose return value or named result is
+  // tainted makes its calls tainted. What cannot be followed falls back to name-only taint: a
+  // function literal, and a function or method assigned or returned as a value (`f := s.Read`),
+  // have all their signature names tainted wherever the name is tainted in the file.
   const spansByName = new Map<string, number[]>();
   functionSpans.forEach((span, index) => {
-    if (span.funcName === null) return;
+    if (span.funcName === null) {
+      looseNames.set(index, new Set(span.declares));
+      return;
+    }
     const list = spansByName.get(span.funcName) ?? [];
     list.push(index);
     spansByName.set(span.funcName, list);
   });
+  if (spansByName.size > 0) {
+    for (const match of code.matchAll(
+      /(?:=|\breturn\b)[ \t]*(?:[A-Za-z_]\w*[ \t]*\.[ \t]*)*([A-Za-z_]\w*)[ \t]*(?=\n|;|$)/g,
+    )) {
+      for (const target of spansByName.get(match[1] ?? "") ?? [])
+        looseNames.set(target, new Set((functionSpans[target] as FunctionSpan).declares));
+    }
+  }
   const declarationNames = new Set(functionSpans.map((span) => span.nameOffset));
-  const callSites: { offset: number; targets: number[]; args: string[] }[] = [];
+  const callSites: { offset: number; name: string; args: string[] }[] = [];
   if (spansByName.size > 0) {
     for (const match of code.matchAll(/(?<![\w])([A-Za-z_]\w*)[ \t]*\(/g)) {
-      const targets = spansByName.get(match[1] ?? "");
+      const name = match[1] ?? "";
       const offset = match.index ?? 0;
-      if (targets === undefined || declarationNames.has(offset)) continue;
+      if (!spansByName.has(name) || declarationNames.has(offset)) continue;
       const open = offset + match[0].length - 1;
       callSites.push({
         offset,
-        targets,
+        name,
         args: readCallArguments(code, open, MAX_CALL_ARGUMENT_CHARS).args,
       });
     }
   }
-  for (let pass = 0; pass < 3; pass += 1) {
+  const returns: { offset: number; expression: string }[] = [];
+  for (const match of code.matchAll(/\breturn\b[ \t]*([^\n]*)/g))
+    returns.push({ offset: match.index ?? 0, expression: match[1] ?? "" });
+  // Passes run until nothing new is tainted (a chain of calls declared in any order), bounded by
+  // the number of functions; a file that does not settle in time falls back to name-only taint.
+  const maxPasses = Math.min(functionSpans.length + 3, 200);
+  let changed = true;
+  let passes = 0;
+  while (changed) {
+    if (passes >= maxPasses) {
+      unsettled = true;
+      break;
+    }
+    passes += 1;
+    changed = false;
     for (const assignment of assignments) {
       const names = assignment.names
         .split(",")
@@ -542,8 +590,11 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
         .filter((name) => IDENTIFIER.test(name) && name !== "_" && name !== "err");
       const value = assignment.value;
       for (const name of names) {
-        if (isTaintedExpr(value, assignment.offset))
-          markTainted(name, declaringScope(name, assignment.offset));
+        if (
+          isTaintedExpr(value, assignment.offset) &&
+          markTainted(name, declaringScope(name, assignment.offset))
+        )
+          changed = true;
         // A constant `q += " AND x"` keeps the string static.
         if (
           (assignment.op === "+=" && !LITERAL_PATTERN.test(value.trim())) ||
@@ -553,15 +604,37 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
         }
       }
     }
-    for (const site of callSites) {
+    // Positions that receive a tainted argument, per callee name (applied once per target).
+    const taintedPositions = new Map<string, Set<number>>();
+    for (const site of callSites)
       site.args.forEach((argument, position) => {
         if (!isTaintedExpr(argument, site.offset)) return;
-        for (const target of site.targets) {
-          const parameter = (functionSpans[target] as FunctionSpan).params[position];
-          if (parameter && parameter !== "_") markTainted(parameter, target);
-        }
+        const set = taintedPositions.get(site.name) ?? new Set<number>();
+        set.add(position);
+        taintedPositions.set(site.name, set);
       });
-    }
+    for (const [name, positions] of taintedPositions)
+      for (const target of spansByName.get(name) ?? [])
+        for (const position of positions) {
+          const parameter = (functionSpans[target] as FunctionSpan).params[position];
+          if (parameter && parameter !== "_" && markTainted(parameter, target)) changed = true;
+        }
+    const taintReturn = (scope: number) => {
+      const name = scope === -1 ? null : (functionSpans[scope] as FunctionSpan).funcName;
+      if (name !== null && !taintedReturns.has(name)) {
+        taintedReturns.add(name);
+        changed = true;
+      }
+    };
+    for (const statement of returns)
+      if (
+        statement.expression.trim() !== "" &&
+        isTaintedExpr(statement.expression, statement.offset)
+      )
+        taintReturn(scopeAt(statement.offset));
+    functionSpans.forEach((span, index) => {
+      if (span.results.some((name) => taintedIn.get(name)?.has(index))) taintReturn(index);
+    });
   }
 
   const report = (ruleId: SourceRuleId, offset: number, evidence: Evidence, cause: string) => {

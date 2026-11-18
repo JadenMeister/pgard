@@ -737,53 +737,87 @@ describe("PG-CRYPTO rules", () => {
     expect(evidence).not.toContain("nest-signing-value");
   });
 
-  it("does not report a PEM public key or certificate that is only verified, but still a private key (#271)", () => {
+  it("exempts a PEM public key only when a verify call clearly uses an asymmetric algorithm (#271)", () => {
     const pem = (kind: string) =>
       `-----BEGIN ${kind}-----\\nMIIBIjANBgkqhkiG\\n-----END ${kind}-----`;
-    const verify = (kind: string) =>
-      rulesIn(
-        `import jwt from 'jsonwebtoken'; const KEY = '${pem(kind)}'; jwt.verify(token, KEY, { algorithms: ['RS256'] });`,
-      );
-    expect(verify("PUBLIC KEY")).toEqual([]);
-    expect(verify("RSA PUBLIC KEY")).toEqual([]);
-    expect(verify("CERTIFICATE")).toEqual([]);
-    expect(verify("PRIVATE KEY")).toEqual(["PG-CRYPTO-002"]);
-    expect(verify("RSA PRIVATE KEY")).toEqual(["PG-CRYPTO-002"]);
-    // A direct literal, a Buffer and a jose key follow the same rule.
+    const sev = (code: string) =>
+      findingsIn(`import jwt from 'jsonwebtoken'; ${code}`).map((f) => `${f.ruleId}:${f.severity}`);
+    const RS = "{ algorithms: ['RS256'] }";
+    const pub = pem("PUBLIC KEY");
+    const priv = pem("PRIVATE KEY");
+    // Pinned asymmetric algorithm: public material, quiet. Also certificate, EC and constants.
+    expect(sev(`const K = '${pub}'; jwt.verify(t, K, ${RS});`)).toEqual([]);
     expect(
-      rulesIn(`import jwt from 'jsonwebtoken'; jwt.verify(t, '${pem("PUBLIC KEY")}');`),
-    ).toEqual([]);
-    expect(
-      rulesIn(
-        `import jwt from 'jsonwebtoken'; jwt.verify(t, Buffer.from('${pem("PUBLIC KEY")}'));`,
+      sev(
+        `const K = '${pem("CERTIFICATE")}'; jwt.verify(t, K, { algorithms: ['ES256', 'PS512'] });`,
       ),
     ).toEqual([]);
     expect(
-      rulesIn(
-        `import { jwtVerify } from 'jose'; const k = new TextEncoder().encode('${pem("CERTIFICATE")}'); jwtVerify(t, k);`,
-      ),
+      sev(`const K = '${pem("RSA PUBLIC KEY")}'; const O = ${RS}; jwt.verify(t, K, O);`),
     ).toEqual([]);
+    expect(sev(`jwt.verify(t, '${pub}', ${RS});`)).toEqual([]);
+    // HS* allowed: algorithm confusion, the public key is the HMAC secret (reported as before).
+    expect(sev(`const K = '${pub}'; jwt.verify(t, K, { algorithms: ['HS256'] });`)).toEqual([
+      "PG-CRYPTO-002:high",
+    ]);
     expect(
-      rulesIn(`import jwt from 'jsonwebtoken'; jwt.verify(t, '${pem("PRIVATE KEY")}');`),
-    ).toEqual(["PG-CRYPTO-002"]);
-    // passport-jwt only verifies: a public key there is fine, a private one is not.
-    const passport = (kind: string) =>
+      sev(`const K = '${pub}'; jwt.verify(t, K, { algorithms: ['RS256', 'HS256'] });`),
+    ).toEqual(["PG-CRYPTO-002:high"]);
+    // Unpinned or unreadable algorithm: not silent, low.
+    expect(sev(`const K = '${pub}'; jwt.verify(t, K);`)).toEqual(["PG-CRYPTO-002:low"]);
+    expect(sev(`const K = '${pub}'; jwt.verify(t, K, opts);`)).toEqual(["PG-CRYPTO-002:low"]);
+    // Not a well-formed public PEM: private block, trailing secret text, other text around it.
+    expect(sev(`jwt.verify(t, '${pub}\\n${priv}', ${RS});`)).toEqual(["PG-CRYPTO-002:high"]);
+    expect(sev(`jwt.verify(t, '${pem("CERTIFICATE")} hunter2-secret', ${RS});`)).toEqual([
+      "PG-CRYPTO-002:high",
+    ]);
+    expect(sev(`jwt.verify(t, 'hunter2 ${pub}', ${RS});`)).toEqual(["PG-CRYPTO-002:high"]);
+    expect(
+      sev(`jwt.verify(t, '-----BEGIN PUBLIC KEY-----\\nabc\\n-----END CERTIFICATE-----', ${RS});`),
+    ).toEqual(["PG-CRYPTO-002:high"]);
+    // A Buffer of the PEM is a raw key; a jose Uint8Array key is an HMAC secret: both reported.
+    expect(sev(`jwt.verify(t, Buffer.from('${pub}'), ${RS});`)).toEqual(["PG-CRYPTO-002:high"]);
+    expect(
       rulesIn(
-        `import { Strategy } from 'passport-jwt'; new Strategy({ secretOrKey: '${pem(kind)}' }, cb);`,
-      );
-    expect(passport("PUBLIC KEY")).toEqual([]);
-    expect(passport("PRIVATE KEY")).toEqual(["PG-CRYPTO-002"]);
-    // Signing with a PEM literal is still a hard-coded key; so is an HMAC key that is a public key.
-    expect(
-      rulesIn(`import jwt from 'jsonwebtoken'; jwt.sign(p, '${pem("PRIVATE KEY")}');`),
+        `import { jwtVerify } from 'jose'; jwtVerify(t, new TextEncoder().encode('${pub}'));`,
+      ),
     ).toEqual(["PG-CRYPTO-002"]);
-    expect(rulesIn(`import jwt from 'jsonwebtoken'; jwt.sign(p, '${pem("PUBLIC KEY")}');`)).toEqual(
-      ["PG-CRYPTO-002"],
-    );
-    // An ordinary literal secret to verify is still reported.
+    // Private keys and signing are unchanged.
+    expect(sev(`jwt.verify(t, '${priv}', ${RS});`)).toEqual(["PG-CRYPTO-002:high"]);
+    expect(sev(`jwt.sign(p, '${priv}');`)).toEqual(["PG-CRYPTO-002:high"]);
+    expect(sev(`jwt.sign(p, '${pub}');`)).toEqual(["PG-CRYPTO-002:high"]);
+    expect(sev("jwt.verify(t, 'plain-hard-coded-secret');")).toEqual(["PG-CRYPTO-002:high"]);
+    // passport-jwt reads `algorithms` from the same options object.
+    const passport = (options: string) =>
+      findingsIn(
+        `import { Strategy } from 'passport-jwt'; const o = ${options}; new Strategy(o, cb);`,
+      ).map((f) => f.severity);
+    expect(passport(`{ secretOrKey: '${pub}', algorithms: ['RS256'] }`)).toEqual([]);
+    expect(passport(`{ secretOrKey: '${pub}' }`)).toEqual(["low"]);
+    expect(passport(`{ secretOrKey: '${pub}', algorithms: ['HS256'] }`)).toEqual(["high"]);
+    expect(passport(`{ secretOrKey: '${priv}', algorithms: ['RS256'] }`)).toEqual(["high"]);
+  });
+
+  it("does not trust a Buffer that is not the global one, and reads a constant options object (#271)", () => {
+    const code = (head: string) =>
+      `import jwt from 'jsonwebtoken'; ${head} jwt.sign(p, Buffer.from('some-secret-value'));`;
+    expect(rulesIn(code(""))).toEqual(["PG-CRYPTO-002"]);
+    expect(rulesIn(code("const Buffer = { from: (k) => process.env[k] };"))).toEqual([]);
     expect(
-      rulesIn("import jwt from 'jsonwebtoken'; jwt.verify(t, 'plain-hard-coded-secret');"),
+      rulesIn(
+        "import { Strategy as JwtStrategy } from 'passport-jwt'; const opts = { secretOrKey: 'some-secret-value' }; new JwtStrategy(opts, cb);",
+      ),
     ).toEqual(["PG-CRYPTO-002"]);
+  });
+
+  it("looks up constant-object properties in linear time (#271)", () => {
+    const build = (count: number) =>
+      `import jwt from 'jsonwebtoken'; const cfg = { ${Array.from({ length: count }, (_, i) => `k${i}: 'secret-value-${i}'`).join(", ")} };\n${Array.from({ length: count }, (_, i) => `jwt.verify(t, cfg.k${i});`).join("\n")}\n`;
+    const small = bestTimeOf(2, () => analyzeJsSource(build(2500), "src/a.ts"));
+    const large = bestTimeOf(2, () => analyzeJsSource(build(10000), "src/a.ts"));
+    // Four times the keys: linear is about 4x, a scan of every property per lookup about 16x.
+    expect(large / Math.max(small, 1)).toBeLessThan(10);
+    expect(large).toBeLessThan(10_000 * TIME_FACTOR);
   });
 
   it("flags broken ciphers", () => {

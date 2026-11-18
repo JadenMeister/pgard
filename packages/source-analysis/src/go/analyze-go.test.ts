@@ -688,3 +688,111 @@ func g(db *sql.DB) {
     ).toEqual(["medium", "medium"]);
   });
 });
+
+describe("Go taint across same-file functions (#298 review)", () => {
+  const imports = ["net/http", "os", "database/sql", "github.com/gin-gonic/gin"];
+  const rules = (body: string, rule: string) =>
+    analyzeGoSource(go(imports, body), "main.go").findings.filter((f) => f.ruleId === rule);
+
+  it("follows a helper that returns request input into a caller that reuses the name", () => {
+    const body = `func getFilename(r *http.Request) string {
+	filename := r.URL.Query().Get("file")
+	return filename
+}
+
+func download(w http.ResponseWriter, r *http.Request) {
+	filename := getFilename(r)
+	http.ServeFile(w, r, "/data/"+filename)
+}`;
+    expect(rules(body, "PG-PATH-001")).toHaveLength(1);
+    // A helper that returns a constant does not taint its caller.
+    expect(rules(body.replace('r.URL.Query().Get("file")', '"report.txt"'), "PG-PATH-001")).toEqual(
+      [],
+    );
+  });
+
+  it("follows a named result and a returned call", () => {
+    const sql = rules(
+      `func readSort(r *http.Request) (sort string) {
+	sort = r.URL.Query().Get("sort")
+	return
+}
+
+func list(db *sql.DB, r *http.Request) {
+	sort := readSort(r)
+	db.Query("SELECT * FROM t ORDER BY " + sort)
+}`,
+      "PG-SQL-003",
+    );
+    expect(sql.map((f) => [f.severity, f.confidence])).toEqual([["high", "high"]]);
+    expect(
+      rules(
+        `func inner(r *http.Request) string { return r.URL.Query().Get("f") }
+func outer(r *http.Request) string { return inner(r) }
+func h(w http.ResponseWriter, r *http.Request) {
+	f := outer(r)
+	os.ReadFile(f)
+}`,
+        "PG-PATH-001",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("settles a long call chain declared in reverse order", () => {
+    const hops = 8;
+    const chain = Array.from({ length: hops }, (_, i) =>
+      i === hops - 1
+        ? `func hop${i}(p string) { os.ReadFile(p) }`
+        : `func hop${i}(p string) { hop${i + 1}(p) }`,
+    ).reverse();
+    const body = `${chain.join("\n")}\nfunc h(c *gin.Context) {\n\tv := c.Query("x")\n\thop0(v)\n}`;
+    expect(rules(body, "PG-PATH-001")).toHaveLength(1);
+    // The same chain with a constant at the entry stays quiet.
+    expect(rules(body.replace('c.Query("x")', '"fixed"'), "PG-PATH-001")).toEqual([]);
+  });
+
+  it("falls back to name-only taint for a method value, a function literal and a package literal", () => {
+    expect(
+      rules(
+        `type S struct{}
+func (s *S) Read(name string) { os.ReadFile(name) }
+func h(c *gin.Context, s *S) {
+	name := c.Query("n")
+	f := s.Read
+	f(name)
+}`,
+        "PG-PATH-001",
+      ),
+    ).toHaveLength(1);
+    expect(
+      rules(
+        `var read = func(name string) { os.ReadFile(name) }
+func h(c *gin.Context) {
+	name := c.Query("n")
+	read(name)
+}`,
+        "PG-PATH-001",
+      ),
+    ).toHaveLength(1);
+    expect(
+      rules(
+        `func h(c *gin.Context) {
+	name := c.Query("n")
+	read := func(name string) { os.ReadFile(name) }
+	read(name)
+}`,
+        "PG-PATH-001",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("does bounded work for many same-named methods and calls", () => {
+    const build = (count: number) =>
+      `package main\nimport "os"\n${Array.from({ length: count }, (_, i) => `func (t T${i}) Get(a string) { os.ReadFile(a) }\n`).join("")}func h(r *http.Request) {\n${Array.from({ length: count }, (_, i) => `\tT${i}{}.Get(r.FormValue("k${i}"))\n`).join("")}}\n`;
+    const small = bestTimeOf(2, () => analyzeGoSource(build(1500), "m.go"));
+    const large = bestTimeOf(2, () => analyzeGoSource(build(6000), "m.go"));
+    // Four times the methods and calls: linear is about 4x, every call against every method 16x.
+    expect(large / Math.max(small, 1)).toBeLessThan(10);
+    expect(large).toBeLessThan(10_000 * TIME_FACTOR);
+  });
+});
