@@ -81,6 +81,29 @@ describe("scanSourceCode with results of an earlier scan", () => {
 });
 
 describe("stored route facts", () => {
+  it("analyze a file again when a stored fact lacks the fields added in #302", async () => {
+    const root = project({
+      "server.js":
+        "import express from 'express';\nconst app = express();\napp.post('/login', login);\nx.post('/y', (a, b) => a);\n",
+    });
+    const first = await scanSourceCode(root);
+    const stale = (drop: (facts: Record<string, unknown>) => void) =>
+      first.fileCache.map((entry) => {
+        const facts = JSON.parse(JSON.stringify(entry.facts)) as Record<string, unknown>;
+        drop(facts);
+        return { ...entry, facts };
+      });
+    const withoutUnrecognized = stale((facts) => delete facts.unrecognizedRoutes);
+    const withoutLimited = stale((facts) => {
+      for (const route of facts.authRoutes as Record<string, unknown>[]) delete route.limited;
+    });
+    for (const cache of [withoutUnrecognized, withoutLimited]) {
+      const second = await scanSourceCode(root, { reuse: reuseOf(cache) });
+      expect(second.reuse).toEqual({ rescanned: 1, reused: 0 });
+      expect(second.findings).toEqual(first.findings);
+    }
+  });
+
   it("never keep a secret-looking route path, and give the same finding as a fresh scan", async () => {
     const token = ["ghp", "_", "WiRiNgTeStVaLuE0123", "456789AbCdEfGhIjK"].join("");
     const root = project({

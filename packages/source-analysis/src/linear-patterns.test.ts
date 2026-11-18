@@ -294,4 +294,21 @@ describe("JavaScript route and protection detection (#302)", () => {
     expect(value.facts.unrecognizedRoutes).toBe(5_001);
     expect(value.facts.authRoutes).toEqual([{ line: 5_004, routePath: "/login", limited: true }]);
   });
+
+  it("stays linear on nested routes that use a limiter and a CSRF name", () => {
+    const head =
+      "import express from 'express';\nimport rateLimit from 'express-rate-limit';\nimport csrf from 'csurf';\nconst app = express();\nconst limiter = rateLimit();\nconst cp = csrf();\n";
+    const chain = (depth: number) =>
+      "app.post('/login', (q, r) => {".repeat(depth) + "limiter(); cp();" + "});".repeat(depth);
+    const code = head + Array.from({ length: 100 }, () => chain(100)).join("\n");
+    const small = head + Array.from({ length: 25 }, () => chain(100)).join("\n");
+    analyzeJsSource(small, "a.js");
+    const quarter = timed(() => analyzeJsSource(small, "a.js")).ms;
+    const { value, ms } = timed(() => analyzeJsSource(code, "a.js"));
+    expect(value.facts.authRoutes).toHaveLength(10_000);
+    // Only the innermost handler of each chain uses the names; four times the input stays far
+    // from the sixteen times a repeated subtree scan would cost.
+    expect(ms).toBeLessThan(LIMIT_MS * 4);
+    expect(ms / Math.max(quarter, 1)).toBeLessThan(12);
+  });
 });

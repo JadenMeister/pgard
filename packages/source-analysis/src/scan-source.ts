@@ -648,25 +648,50 @@ export async function scanSourceCode(
         status: "suspected",
         confidence: "low",
         evidence:
-          "cookie-based session + state-changing route; a CSRF library is imported elsewhere in the project, but no CSRF middleware is visibly applied to this route or its router (use/register or a route argument); it may be applied elsewhere",
+          "cookie-based session + state-changing route; a CSRF library is in the project, but no CSRF middleware is visibly applied to this route or its router in the same file (use/register or a route argument); it may be applied in another file",
         cause: "csrf-project-unapplied",
       });
     }
   }
-  for (const entry of jsFacts) {
-    const routes = entry.facts.authRoutes.filter((route) => !hasRateLimiter || !route.limited);
-    for (const route of routes.slice(0, 5)) {
+  if (!hasRateLimiter) {
+    for (const entry of jsFacts) {
+      for (const route of entry.facts.authRoutes.slice(0, 5)) {
+        projectFindings.push({
+          ruleId: "PG-BRUTE-001",
+          path: entry.path,
+          line: route.line,
+          severity: "medium",
+          status: "suspected",
+          confidence: "low",
+          evidence: `POST ${route.routePath.slice(0, 80)} with no rate-limiting library found in the project (a proxy or gateway may still limit it)`,
+          cause: `brute:${route.routePath}`,
+        });
+      }
+    }
+  } else {
+    // A limiter library is part of the project. Authentication routes it is not visibly applied to
+    // are demoted, and merged into ONE finding for the project (like CSRF), so a well protected
+    // multi-file app, whose limiter sits in another file than its routers, does not get a finding
+    // per route. The count is in the evidence; the finding is never dropped.
+    let first: { path: string; line: number; routePath: string } | null = null;
+    let count = 0;
+    for (const entry of jsFacts) {
+      for (const route of entry.facts.authRoutes) {
+        if (route.limited) continue;
+        count += 1;
+        first ??= { path: entry.path, line: route.line, routePath: route.routePath };
+      }
+    }
+    if (first) {
       projectFindings.push({
         ruleId: "PG-BRUTE-001",
-        path: entry.path,
-        line: route.line,
-        severity: hasRateLimiter ? "low" : "medium",
+        path: first.path,
+        line: first.line,
+        severity: "low",
         status: "suspected",
         confidence: "low",
-        evidence: hasRateLimiter
-          ? `POST ${route.routePath.slice(0, 80)}: a rate-limiting library is imported elsewhere in the project, but no limiter is visibly applied to this route or its router (it may be applied elsewhere)`
-          : `POST ${route.routePath.slice(0, 80)} with no rate-limiting library found in the project (a proxy or gateway may still limit it)`,
-        cause: `brute:${route.routePath}`,
+        evidence: `POST ${first.routePath.slice(0, 80)}${count > 1 ? ` and ${count - 1} more authentication route(s)` : ""}: a rate-limiting library is in the project, but no limiter is visibly applied to ${count > 1 ? "these routes or their routers" : "this route or its router"} in the same file (it may be applied in another file)`,
+        cause: "brute-project-unapplied",
       });
     }
   }

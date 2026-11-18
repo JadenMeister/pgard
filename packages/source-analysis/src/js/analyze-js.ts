@@ -134,7 +134,9 @@ const ROUTE_RECEIVERS = /^(app|router|server|api|routes?|fastify|r)$/;
 const ROUTER_FACTORIES = new Set(["express", "express.Router", "Router", "fastify", "Fastify"]);
 /** Receivers that are HTTP clients, not routers: `axios.post("/x", () => ...)` is no route. */
 const HTTP_CLIENT_RECEIVER =
-  /^(axios|http|https|got|ky|superagent|request|client|fetch|\$|jQuery|\$http|httpClient|agent|supertest|session|page|cy)$/i;
+  /^(\$?axios|http|https|got|ky|superagent|request|fetch|\$|jQuery|\$http|\$fetch|ofetch|agent|supertest|session|page|cy|rest|msw|nock|wretch|fetchMock|mock\w{0,20}|\w{0,20}client)$/i;
+/** Calls whose handler argument may hold a route; a limiter use inside one is that route's own. */
+const ROUTE_REGISTRATIONS = new Set(["get", "post", "put", "patch", "delete", "all", "use"]);
 const AUTH_ROUTE =
   /login|log-in|signin|sign-in|sign_in|auth|session|reset|forgot|password|otp|token|verify/i;
 /** A cookie value that is a session or token (used when the cookie name does not say so). */
@@ -3242,18 +3244,44 @@ export function analyzeJsSource(
     const root = chainRoot(expression);
     return root !== null && names.has(root);
   };
+  // One pass over the file: which function nodes use a limiter / CSRF name. The marking climbs
+  // from each reference to its enclosing functions and stops at one already marked or at a
+  // function that is itself a route or `use` handler, so nested routes do not mark the outer one
+  // and the whole pass stays linear.
+  const functionsUsingLimiter = new Set<ts.Node>();
+  const functionsUsingCsrf = new Set<ts.Node>();
+  const functionParams = new Set<string>();
+  const isHandlerOfCall = (fn: ts.Node): boolean => {
+    const parent = fn.parent;
+    if (!parent || !ts.isCallExpression(parent) || !parent.arguments.includes(fn as ts.Expression))
+      return false;
+    const callee = calleeName(parent);
+    return callee !== null && ROUTE_REGISTRATIONS.has(callee);
+  };
+  const markFunctions = (start: ts.Node, into: Set<ts.Node>) => {
+    for (let node: ts.Node | undefined = start.parent; node; node = node.parent) {
+      if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) {
+        if (into.has(node)) return;
+        into.add(node);
+        if (isHandlerOfCall(node)) return;
+      }
+    }
+  };
+  const collectUsage = (node: ts.Node): void => {
+    if (ts.isIdentifier(node)) {
+      if (limiterNames.has(node.text)) markFunctions(node, functionsUsingLimiter);
+      if (csrfNames.has(node.text)) markFunctions(node, functionsUsingCsrf);
+    } else if (ts.isParameter(node) && ts.isIdentifier(node.name)) {
+      functionParams.add(node.name.text);
+    }
+    ts.forEachChild(node, collectUsage);
+  };
+  collectUsage(sourceFile);
   /** True when an inline handler's body uses a name bound to a library (`limiter.consume(...)`). */
-  const handlerUses = (handler: ts.Expression | undefined, names: Set<string>): boolean => {
-    if (!handler || names.size === 0) return false;
+  const handlerUses = (handler: ts.Expression | undefined, used: Set<ts.Node>): boolean => {
+    if (!handler) return false;
     const fn = unwrap(handler);
-    if ((!ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn)) || !fn.body) return false;
-    let budget = 3000;
-    const scan = (node: ts.Node): boolean => {
-      if (budget-- <= 0) return false;
-      if (ts.isIdentifier(node) && names.has(node.text)) return true;
-      return ts.forEachChild(node, (child) => (scan(child) ? true : undefined)) === true;
-    };
-    return scan(fn.body);
+    return (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) && used.has(fn);
   };
   // Receivers (app, router, ...) that already had a limiter / CSRF middleware applied; routes
   // registered after that on the same receiver are covered. Routes are visited in source order.
@@ -3267,7 +3295,12 @@ export function analyzeJsSource(
     map.set(receiver, prefixes);
   };
   const isCovered = (map: Map<string, string[]>, receiver: string, routePath: string) =>
-    (map.get(receiver) ?? []).some((prefix) => routePath.startsWith(prefix));
+    (map.get(receiver) ?? []).some(
+      (prefix) =>
+        prefix === "" ||
+        routePath === prefix ||
+        routePath.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`),
+    );
   const checkProtectionUse = (call: ts.CallExpression, name: string) => {
     if (name !== "use" && name !== "register" && name !== "addHook") return;
     const receiver = calleeReceiver(call);
@@ -3319,11 +3352,21 @@ export function analyzeJsSource(
       // A route-looking registration on a receiver that is not a known router: not checked, so
       // count it (the scan reports partial coverage). HTTP clients and plain data calls are not.
       const last = unwrap(call.arguments[call.arguments.length - 1] as ts.Expression);
-      const lastSegment = receiverPath.split(".").pop() ?? "";
+      const segments = receiverPath.split(".");
+      const rootSegment = segments[0] ?? "";
+      const inline = ts.isArrowFunction(last) || ts.isFunctionExpression(last);
+      // A controller reference (`login`, `c.login`) counts when the receiver comes from an import,
+      // a function parameter or `this`; an unknown local value is not guessed at.
+      const reference =
+        (ts.isIdentifier(last) || ts.isPropertyAccessExpression(last)) &&
+        (namespaceImports.has(rootSegment) ||
+          namedImports.has(rootSegment) ||
+          functionParams.has(rootSegment) ||
+          rootSegment === "this");
       if (
         (unwrap(route) as ts.StringLiteral).text.startsWith("/") &&
-        (ts.isArrowFunction(last) || ts.isFunctionExpression(last)) &&
-        !HTTP_CLIENT_RECEIVER.test(lastSegment)
+        (inline || reference) &&
+        !segments.some((segment) => HTTP_CLIENT_RECEIVER.test(segment))
       )
         facts.unrecognizedRoutes += 1;
       return;
@@ -3337,7 +3380,7 @@ export function analyzeJsSource(
     const csrfCovered =
       isCovered(csrfReceivers, receiverPath, routePath) ||
       options.some((argument) => isProtection(argument, csrfNames)) ||
-      handlerUses(call.arguments[call.arguments.length - 1], csrfNames);
+      handlerUses(call.arguments[call.arguments.length - 1], functionsUsingCsrf);
     if (!csrfCovered) {
       if (name === "post") facts.csrfUncoveredPost.push(line);
       else facts.csrfUncoveredPreflight.push(line);
@@ -3347,7 +3390,7 @@ export function analyzeJsSource(
         isCovered(limitedReceivers, receiverPath, routePath) ||
         middleware.some((argument) => isProtection(argument, limiterNames)) ||
         isProtection(call.arguments[call.arguments.length - 1] as ts.Node, limiterNames) ||
-        handlerUses(call.arguments[call.arguments.length - 1], limiterNames);
+        handlerUses(call.arguments[call.arguments.length - 1], functionsUsingLimiter);
       facts.authRoutes.push({ line, routePath, limited });
     }
   };

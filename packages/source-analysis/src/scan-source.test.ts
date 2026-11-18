@@ -250,6 +250,41 @@ describe("scanSourceCode", () => {
       expect(brute.map((f) => f.location.line)).toEqual([10]);
     });
 
+    it("does not let use('/log', limiter) cover /login, but covers /log and /log/x", async () => {
+      const { brute } = await scan(
+        "app.use('/log', limiter);\napp.post('/login', login);\napp.post('/log/auth', login2);\n",
+      );
+      expect(brute.map((f) => f.location.line)).toEqual([10]);
+    });
+
+    it("merges the demoted brute-force findings of a multi-file app into one", async () => {
+      const route = (n: number) => `r.post('/login${n}', login);\n`;
+      const { brute } = await scan("app.use('/auth', limiter, authRouter);\n", {
+        "routes/a.js": `const r = require('express').Router();\n${route(1)}${route(2)}${route(3)}`,
+        "routes/b.js": `const r = require('express').Router();\n${route(4)}${route(5)}`,
+      });
+      expect(brute).toHaveLength(1);
+      expect(brute[0]).toMatchObject({ severity: "low", confidence: "low" });
+      expect(brute[0]?.evidence).toContain("4 more");
+    });
+
+    it("counts a controller reference on an imported receiver, not HTTP clients", async () => {
+      const entry = async (code: string) =>
+        (await scanSourceCode(project({ "a.js": code }))).coverage.find(
+          (c) => c.area === "source:heuristics",
+        );
+      expect(
+        await entry(
+          "import { authRouter } from './routes';\nauthRouter.post('/login', c.login);\nauthRouter.put('/x', handler);\n",
+        ),
+      ).toMatchObject({ status: "partial", noteParams: { count: 2 } });
+      expect(
+        await entry(
+          "import axios from 'axios';\nimport { rest } from 'msw';\nimport apiClient from './c';\naxios.post('/api/x', payload);\nrest.post('/api/y', (req, res) => res);\napiClient.post('/z', body);\n$axios.post('/w', (r) => r);\n",
+        ),
+      ).toMatchObject({ status: "completed" });
+    });
+
     it("sees receivers bound to express.Router(), express() and new Router()", async () => {
       const files = {
         "a.js":
