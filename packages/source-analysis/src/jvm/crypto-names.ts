@@ -51,7 +51,22 @@ export function weakCipherReason(text: string, transformation: boolean): string 
     if (mode === "ECB") return "AES in ECB mode";
   }
   if (mode === "ECB" && !/^(?:RSA|ECIES)/i.test(algorithm)) return `${algorithm} in ECB mode`;
+  // `RSA/ECB/NoPadding`, `RSA/NONE/NoPadding`, `RSA//NoPadding`: textbook RSA.
+  if (/^RSA$/i.test(algorithm) && parts[2]?.toUpperCase() === "NOPADDING")
+    return "RSA with no padding (textbook RSA is deterministic and malleable)";
   return null;
+}
+
+/** A signature algorithm built on MD2, MD5 or SHA-1 (`MD5withRSA`, `SHA1withECDSA`). */
+const WEAK_SIGNATURE =
+  /^(?:MD2|MD5|SHA-?1)with(?:RSA(?:andMGF1|\/PSS)?|DSA|ECDSA(?:inP1363Format)?)$/i;
+
+/** Why a `Signature.getInstance` algorithm name is weak (a broken or deprecated digest), or null. */
+export function weakSignatureReason(text: string): string | null {
+  const name = text.trim();
+  return WEAK_SIGNATURE.test(name)
+    ? `${name} signature (built on a broken or deprecated digest)`
+    : null;
 }
 
 /** MD5, SHA-1 and the older digests. `SHA` alone is SHA-1 in the JCA. */

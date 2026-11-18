@@ -6,7 +6,12 @@ import type { RawSourceFinding } from "../finding-factory.js";
 import { scanSourceCode } from "../scan-source.js";
 import { TreeSitterRuntime } from "../tree-sitter/runtime.js";
 import { analyzeJvmTree } from "./analyze-jvm.js";
-import { weakCipherReason, isPasswordWord, isSecretContextName } from "./crypto-names.js";
+import {
+  weakCipherReason,
+  weakSignatureReason,
+  isPasswordWord,
+  isSecretContextName,
+} from "./crypto-names.js";
 import { TIME_FACTOR, itScaled } from "../../../../tests/support/timing.js";
 
 const runtime = new TreeSitterRuntime();
@@ -85,6 +90,120 @@ const CASES: Case[] = [
       `byte[] h(String pwd) throws Exception { return MessageDigest.getInstance("SHA").digest(pwd.getBytes()); }`,
     ),
     expect: { "PG-CRYPTO-001": "medium" },
+  },
+  {
+    name: "RSA/ECB/NoPadding is textbook RSA",
+    source: java(`Cipher c() throws Exception { return Cipher.getInstance("RSA/ECB/NoPadding"); }`),
+    expect: { "PG-CRYPTO-003": "high" },
+    evidence: /textbook RSA/,
+  },
+  {
+    name: "RSA/NONE/NoPadding, in any case, and held in a constant",
+    source: java(
+      `private static final String T = "rsa/none/nopadding";
+      Cipher c() throws Exception { return Cipher.getInstance(T); }`,
+    ),
+    expect: { "PG-CRYPTO-003": "high" },
+    evidence: /RSA with no padding/,
+  },
+  {
+    name: "Kotlin RSA/NONE/NoPadding",
+    path: "A.kt",
+    source: kotlin(`fun c() = Cipher.getInstance("RSA/NONE/NoPadding")`),
+    expect: { "PG-CRYPTO-003": "high" },
+  },
+  {
+    name: "RSA with OAEP padding is fine",
+    source: java(
+      `Cipher c() throws Exception { return Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding"); }`,
+    ),
+    expect: {},
+  },
+  {
+    name: "Signature MD5withRSA",
+    source: java(`Signature s() throws Exception { return Signature.getInstance("MD5withRSA"); }`),
+    expect: { "PG-CRYPTO-003": "high" },
+    evidence: /weak signature algorithm: MD5withRSA/,
+  },
+  {
+    name: "Signature SHA1withRSA in another case, and a provider argument",
+    source: java(
+      `Signature s() throws Exception { return Signature.getInstance("sha1WITHrsa", "BC"); }`,
+    ),
+    expect: { "PG-CRYPTO-003": "high" },
+  },
+  {
+    name: "Signature siblings held in a constant",
+    source: java(
+      `private static final String A = "SHA1withECDSA";
+      Signature a() throws Exception { return Signature.getInstance(A); }
+      Signature b() throws Exception { return Signature.getInstance("MD5withDSA"); }
+      Signature c() throws Exception { return Signature.getInstance("MD2withRSA"); }
+      Signature d() throws Exception { return Signature.getInstance("SHA1withDSA"); }`,
+    ),
+    expect: { "PG-CRYPTO-003": "high" },
+  },
+  {
+    name: "Kotlin Signature SHA1withRSA",
+    path: "A.kt",
+    source: kotlin(`fun s() = Signature.getInstance("SHA1withRSA")`),
+    expect: { "PG-CRYPTO-003": "high" },
+  },
+  {
+    name: "strong signatures are fine",
+    source: java(
+      `Signature a() throws Exception { return Signature.getInstance("SHA256withRSA"); }
+      Signature b() throws Exception { return Signature.getInstance("SHA256withECDSA"); }
+      Signature c() throws Exception { return Signature.getInstance("Ed25519"); }`,
+    ),
+    expect: {},
+  },
+  {
+    name: "Signature algorithm from a parameter is not judged",
+    source: java(`Signature s(String alg) throws Exception { return Signature.getInstance(alg); }`),
+    expect: {},
+  },
+  // ---------------------------------------------------------------- property scope (#350)
+  {
+    name: "datasource, mail and redis password defaults are not cryptographic keys",
+    source: java(
+      `${V}("\${spring.datasource.password:dbpass-value}") String a;
+      ${V}("\${spring.mail.password:mailpass-value}") String b;
+      ${V}("\${spring.redis.password:redispass-value}") String c;
+      ${V}("\${app.admin.password:adminpass-value}") String d;`,
+    ),
+    expect: {},
+  },
+  {
+    name: "password defaults in crypto contexts are still reported",
+    source: java(
+      `${V}("\${jasypt.encryptor.password:jasypt-pass-value}") String a;
+      ${V}("\${server.ssl.key-store-password:keystore-pass-value}") String b;
+      ${V}("\${server.ssl.trust-store-password:truststore-pass-value}") String c;
+      ${V}("\${server.ssl.key-password:keypass-value}") String d;
+      ${V}("\${app.signing.password:signing-pass-value}") String e;
+      ${V}("\${app.encryption.password:encryption-pass-value}") String f;`,
+    ),
+    expect: { "PG-CRYPTO-002": "low" },
+  },
+  {
+    name: "i18n and kafka message keys are not cryptographic keys",
+    source: java(
+      `${V}("\${app.i18n.message.key:greeting.hello}") String a;
+      ${V}("\${kafka.producer.key:order-events}") String b;
+      ${V}("\${kafka.consumer.key:order-events}") String key;`,
+    ),
+    expect: {},
+  },
+  {
+    name: "real key properties named key are still reported",
+    source: java(
+      `${V}("\${jwt.secret.key:dev-secret-material}") String a;
+      ${V}("\${encryption.key:dev-enc-material}") String b;
+      ${V}("\${signing.key:dev-sign-material}") String c;
+      ${V}("\${api.key:dev-api-material}") String d;`,
+    ),
+    expect: { "PG-CRYPTO-002": "low" },
   },
   {
     name: "algorithm held in a constant",
@@ -828,6 +947,95 @@ describe("cryptography rules on the JVM engine", () => {
   }
 });
 
+describe("property scope counts (#350)", () => {
+  it("reports each crypto-context password and each real key, and nothing else", async () => {
+    const crypto = await run(
+      java(
+        `${V}("\${jasypt.encryptor.password:jasypt-pass-value}") String a;
+        ${V}("\${server.ssl.key-store-password:keystore-pass-value}") String b;
+        ${V}("\${server.ssl.trust-store-password:truststore-pass-value}") String c;
+        ${V}("\${spring.datasource.password:dbpass-value}") String d;`,
+      ),
+      "A.java",
+    );
+    expect(crypto).toHaveLength(3);
+    const keys = await run(
+      java(
+        `${V}("\${signing.key:dev-sign-material}") String a;
+        ${V}("\${api.key:dev-api-material}") String b;
+        ${V}("\${app.i18n.message.key:greeting}") String c;
+        ${V}("\${kafka.producer.key:orders}") String d;`,
+      ),
+      "A.java",
+    );
+    expect(keys).toHaveLength(2);
+  });
+});
+
+describe("property scope, review round (#350)", () => {
+  const count = async (name: string, field = "String a"): Promise<number> =>
+    (await run(java(`${V}("\${${name}:Xk9!pQ2#vLm8zR4t}") ${field};`), "A.java")).length;
+  it.each([
+    "rabbit.encryption.key",
+    "message.encryption.key",
+    "app.topic-encryption.key",
+    "producer.signing.key",
+    "label.signing.key",
+    "topic.hmac.key",
+    "kafka.ssl.key",
+    "kafka.sasl.jaas.key",
+    "consumer.api.key",
+    "bundle.license.key",
+    "app.messages.key",
+    "stripe.consumer.key",
+    "oauth.consumer.key",
+  ])("still reports %s, also on a field named key", async (name) => {
+    expect(await count(name)).toBe(1);
+    expect(await count(name, "String key")).toBe(1);
+  });
+  it.each(["app.i18n.message.key", "kafka.producer.key", "kafka.consumer.key"])(
+    "skips %s",
+    async (name) => {
+      expect(await count(name)).toBe(0);
+      expect(await count(name, "String key")).toBe(0);
+    },
+  );
+  it.each([
+    "app.aes.password",
+    "app.pgp.password",
+    "app.gpg.password",
+    "app.signature.password",
+    "app.keypair.password",
+    "app.keyring.password",
+    "app.master.password",
+    "app.vault.password",
+    "app.zip.password",
+    "app.archive.password",
+    "app.backup.password",
+    "app.pdf.password",
+  ])("reports the crypto-purposed password %s", async (name) => {
+    expect(await count(name)).toBe(1);
+  });
+  it.each([
+    "design.password",
+    "spring.datasource.password",
+    "spring.mail.password",
+    "spring.redis.password",
+  ])("does not report %s", async (name) => {
+    expect(await count(name)).toBe(0);
+  });
+  it("judges the SHA-1 signature families", async () => {
+    for (const alg of ["SHA1withRSAandMGF1", "SHA1withRSA/PSS", "SHA1withECDSAinP1363Format"]) {
+      const found = await run(
+        java(`Signature s() throws Exception { return Signature.getInstance("${alg}"); }`),
+        "A.java",
+      );
+      expect(found.map((finding) => finding.ruleId)).toEqual(["PG-CRYPTO-003"]);
+    }
+    expect(weakSignatureReason("SHA256withRSAandMGF1")).toBeNull();
+  });
+});
+
 describe("name helpers", () => {
   it("reads weak cipher names", () => {
     expect(weakCipherReason("DESede/CBC/PKCS5Padding", true)).toMatch(/DESede/);
@@ -836,6 +1044,14 @@ describe("name helpers", () => {
     expect(weakCipherReason("AES/CBC/PKCS5Padding", true)).toBeNull();
     expect(weakCipherReason("PBEWithMD5AndDES", true)).not.toBeNull();
     expect(weakCipherReason("RSA/ECB/OAEPPadding", true)).toBeNull();
+    expect(weakCipherReason("RSA/ECB/PKCS1Padding", true)).toBeNull();
+    expect(weakCipherReason("RSA/ECB/NoPadding", true)).toMatch(/textbook RSA/);
+    expect(weakCipherReason("RSA//NoPadding", true)).toMatch(/textbook RSA/);
+    expect(weakCipherReason("RSA", true)).toBeNull();
+    expect(weakCipherReason("AES/GCM/NoPadding", true)).toBeNull();
+    expect(weakSignatureReason("md5withrsa")).not.toBeNull();
+    expect(weakSignatureReason("SHA1withECDSA")).not.toBeNull();
+    expect(weakSignatureReason("SHA256withRSA")).toBeNull();
   });
   it("splits names into words", () => {
     expect(isPasswordWord("getPassword")).toBe(true);

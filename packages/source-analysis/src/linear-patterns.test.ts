@@ -1,4 +1,11 @@
 import { describe, expect, it } from "vitest";
+import {
+  CRYPTO_PASSWORD_CONTEXT,
+  GENERIC_KEY_PROPERTY,
+  KEY_PROPERTY,
+  NOT_A_CRYPTO_KEY_CONTEXT,
+  PASSWORD_PROPERTY,
+} from "./jvm/crypto-rules.js";
 import { withoutTypeArguments } from "./jvm/kotlin-ir.js";
 import {
   analyzeJsp,
@@ -252,4 +259,26 @@ describe("escape-call stripping is linear in the number of calls (#506)", () => 
       expect(rest.value.cls).not.toBe("tainted");
     },
   );
+});
+
+describe("JVM configuration key patterns (#350)", () => {
+  const inputs = {
+    dots: "a.".repeat(SIZE / 2),
+    dashes: "key-".repeat(SIZE / 4),
+    nearMiss: `${"key-store.".repeat(SIZE / 10)}x`,
+    spaced: `${"ssl-".repeat(SIZE / 4)}!`,
+  };
+  const patterns = [
+    ["PASSWORD_PROPERTY", PASSWORD_PROPERTY],
+    ["CRYPTO_PASSWORD_CONTEXT", CRYPTO_PASSWORD_CONTEXT],
+    ["GENERIC_KEY_PROPERTY", GENERIC_KEY_PROPERTY],
+    ["NOT_A_CRYPTO_KEY_CONTEXT", NOT_A_CRYPTO_KEY_CONTEXT],
+    ["KEY_PROPERTY", KEY_PROPERTY],
+  ] as const;
+  for (const [name, pattern] of patterns) {
+    it.each(Object.entries(inputs))(`${name} is linear on %s`, (_label, input) => {
+      const { ms } = timed(() => pattern.test(input));
+      expect(ms).toBeLessThan(LIMIT_MS);
+    });
+  }
 });
