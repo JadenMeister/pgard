@@ -487,6 +487,9 @@ export function convertKotlin(ast: AstResult): Unit {
         type: declType(declaration),
         init,
         isFinal,
+        ...(initNode !== undefined && delegate === undefined && getter === undefined
+          ? initTextOf(initNode)
+          : {}),
       },
     ];
   }
@@ -720,6 +723,12 @@ export function convertKotlin(ast: AstResult): Unit {
     return out;
   }
 
+  /** The text of a short initializer, for conditions kept in a variable. */
+  const initTextOf = (node: AstNode): { initText?: string } => {
+    const value = text(node);
+    return value.length <= 300 ? { initText: value } : {};
+  };
+
   const addField = (info: ClassInfo, field: FieldInfo): void => {
     info.fields.set(field.name, field);
   };
@@ -744,6 +753,10 @@ export function convertKotlin(ast: AstResult): Unit {
               overridable: /\b(?:open|abstract|override)\b/.test(
                 mods === undefined ? "" : text(mods),
               ),
+              isPrivate:
+                (mods?.children ?? []).some(
+                  (child) => child.type === "visibility_modifier" && text(child) === "private",
+                ) && ofType(member, "setter") === undefined,
               init: declared.init,
               line: declared.line,
               annotations: annotationsOf(mods, 1),

@@ -273,10 +273,19 @@ const CASES: Case[] = [
     expected: "untraced",
   },
   {
-    name: "a value that is not a built string and has no source is not reported",
+    name: "a bare parameter given whole to a typed JdbcTemplate is reported low, not followed",
     source: java(
       SPRING_IMPORTS,
       `JdbcTemplate jdbc;
+      void f(String sql) { jdbc.queryForList(sql); }`,
+    ),
+    expected: "inferred",
+  },
+  {
+    name: "a bare parameter given to a receiver of unknown type is not reported",
+    source: java(
+      SPRING_IMPORTS,
+      `Object jdbc;
       void f(String sql) { jdbc.queryForList(sql); }`,
     ),
     expected: "none",

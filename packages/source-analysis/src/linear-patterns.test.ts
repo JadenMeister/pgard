@@ -7,7 +7,10 @@ import {
   PASSWORD_PROPERTY,
 } from "./jvm/crypto-rules.js";
 import { analyzeJsSource } from "./js/analyze-js.js";
+import { analyzeJvmTree } from "./jvm/analyze-jvm.js";
+import { elementTypeOf } from "./jvm/flow-values.js";
 import { withoutTypeArguments } from "./jvm/kotlin-ir.js";
+import { TreeSitterRuntime } from "./tree-sitter/runtime.js";
 import {
   analyzeJsp,
   analyzeThymeleaf,
@@ -73,6 +76,59 @@ describe("withoutTypeArguments (Kotlin supertype name)", () => {
     const { value, ms } = timed(() => withoutTypeArguments(input));
     expect(value).toBe(input);
     expect(ms).toBeLessThan(LIMIT_MS);
+  });
+});
+
+describe("elementTypeOf (loop variable type from a typed collection, #295)", () => {
+  it.each([
+    ["List<LogEntry>", "LogEntry"],
+    ["MutableList<LogEntry?>", "LogEntry"],
+    ["Array<LogEntry>", "LogEntry"],
+    ["LogEntry[]", "LogEntry"],
+    ["List<? extends LogEntry>", "LogEntry"],
+    ["List<out LogEntry>", "LogEntry"],
+    ["Set<a.b.LogEntry>", "a.b.LogEntry"],
+    ["Map<String, LogEntry>", null],
+    ["List<*>", null],
+    ["List<T>", "T"],
+    ["Plain", null],
+    ["", null],
+  ])("reads %j", (input, expected) => {
+    expect(elementTypeOf(input)).toBe(expected);
+  });
+
+  it("is linear on a long type with many '<' and no '>'", () => {
+    for (const input of [
+      `List${"<".repeat(SIZE)}`,
+      `List<${"A<".repeat(SIZE)}>`,
+      "A[]".repeat(SIZE),
+    ]) {
+      const { ms } = timed(() => elementTypeOf(input));
+      expect(ms).toBeLessThan(LIMIT_MS);
+    }
+  });
+});
+
+describe("conditions kept in variables, field and receiver checks (#294, #295, #286)", () => {
+  it("stays linear in a file with a thousand condition variables and tests", async () => {
+    const runtime = new TreeSitterRuntime();
+    try {
+      const lines: string[] = [];
+      for (let i = 0; i < 1500; i += 1) {
+        lines.push(
+          `boolean ok${i} = x.normalize().startsWith(base) && ${"a".repeat(200)}.contains(x);`,
+          `if (!ok${i}) throw new SecurityException();`,
+        );
+      }
+      const source = `import java.nio.file.*;\nclass A { void h(Path x, Path base) throws Exception {\n${lines.join("\n")}\nFiles.readAllBytes(x);\n} }\n`;
+      const outcome = await runtime.parse("java", source);
+      if (outcome.status !== "parsed") throw new Error(`not parsed: ${outcome.status}`);
+      const { ms } = timed(() => analyzeJvmTree(outcome.tree.rootNode, source, "A.java", "java"));
+      outcome.dispose();
+      expect(ms).toBeLessThan(LIMIT_MS * 4);
+    } finally {
+      runtime.dispose();
+    }
   });
 });
 
