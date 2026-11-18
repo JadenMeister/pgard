@@ -1,4 +1,4 @@
-import { execFile as nodeExecFile } from "node:child_process";
+import { spawn as nodeSpawn } from "node:child_process";
 import { statSync } from "node:fs";
 import path from "node:path";
 
@@ -14,30 +14,30 @@ export type JavaProbe =
 export const JAVA_TIMEOUT_MS = 5000;
 export const JAVA_OUTPUT_CAP_BYTES = 64 * 1024;
 
-type ExecError = Error & { code?: unknown; killed?: boolean };
+/** The part of a child process the probe uses (a fake in tests). */
+export interface JavaChild {
+  stdout: NodeJS.ReadableStream | null;
+  stderr: NodeJS.ReadableStream | null;
+  kill: (signal?: NodeJS.Signals) => boolean;
+  once: (event: string, listener: (...args: never[]) => void) => unknown;
+}
 
-type ExecFileFn = (
+export type SpawnFn = (
   file: string,
   args: readonly string[],
   options: {
-    timeout: number;
-    maxBuffer: number;
+    stdio: ["ignore", "pipe", "pipe"];
     shell: false;
     windowsHide: true;
-    killSignal: "SIGKILL";
-    detached: boolean;
     env: NodeJS.ProcessEnv;
-    encoding: "utf8";
   },
-  callback: (error: ExecError | null, stdout: string, stderr: string) => void,
-) =>
-  { pid?: number | undefined; kill?: (signal?: NodeJS.Signals) => boolean } | undefined | unknown;
+) => JavaChild;
 
 export interface JavaProbeOptions {
   env?: Readonly<Record<string, string | undefined>>;
   platform?: NodeJS.Platform;
-  /** Injected in tests; the default is `node:child_process.execFile`. */
-  execFile?: ExecFileFn;
+  /** Injected in tests; the default is `node:child_process.spawn`. */
+  spawn?: SpawnFn;
   isFile?: (file: string) => boolean;
   /** The process's own current directory (never searched on Windows). Test hook. */
   cwd?: string;
@@ -143,81 +143,86 @@ export function resolveJavaExecutable(options: JavaProbeOptions = {}): string | 
 
 /**
  * Reads the Java runtime's own version text: `JAVA_HOME/bin/java` first, else `java` from the
- * trusted PATH entries. `execFile` with an argument array (no shell), SIGKILL after 5 s, a 64 KiB
- * output cap, and a timer of its own that answers "timeout" even if the callback never fires (a
- * child that ignores signals, or a grandchild that keeps the pipes open). On POSIX the child
- * leads its own process group and the whole group is killed; on Windows only the child is.
- * Never throws.
+ * trusted PATH entries, as an absolute path (see `resolveJavaExecutable`). `spawn` with an
+ * argument array (no shell), no stdin (reads end at once), stdout and stderr collected up to
+ * 64 KiB (the child is killed when it prints more), and `SIGKILL` of the direct child after 5 s
+ * or when PGARD exits. A timer answers "timeout" even if the child never closes. Only the direct
+ * child is killed. Never throws.
  */
 export function readJavaVersionOutput(options: JavaProbeOptions = {}): Promise<JavaProbe> {
   const env = options.env ?? process.env;
   const platform = options.platform ?? process.platform;
-  const exec = options.execFile ?? (nodeExecFile as unknown as ExecFileFn);
+  const spawnChild = options.spawn ?? (nodeSpawn as unknown as SpawnFn);
   const timeoutMs = options.timeoutMs ?? JAVA_TIMEOUT_MS;
   const file = resolveJavaExecutable(options);
   if (file === null) return Promise.resolve({ status: "missing" });
   return new Promise<JavaProbe>((resolve) => {
     let settled = false;
     let timer: NodeJS.Timeout | undefined;
-    let child:
-      { pid?: number | undefined; kill?: (signal?: NodeJS.Signals) => boolean } | undefined;
+    let child: JavaChild | undefined;
+    const killOnExit = (): void => {
+      try {
+        child?.kill("SIGKILL");
+      } catch {
+        // already gone
+      }
+    };
     const finish = (probe: JavaProbe): void => {
       if (settled) return;
       settled = true;
       if (timer !== undefined) clearTimeout(timer);
+      process.removeListener("exit", killOnExit);
       resolve(probe);
     };
-    const killChild = (): void => {
-      try {
-        if (platform !== "win32" && child?.pid !== undefined) process.kill(-child.pid, "SIGKILL");
-        else child?.kill?.("SIGKILL");
-      } catch {
-        try {
-          child?.kill?.("SIGKILL");
-        } catch {
-          // already gone
-        }
-      }
-    };
     try {
-      child = exec(
-        file,
-        ["-version"],
-        {
-          timeout: timeoutMs,
-          maxBuffer: JAVA_OUTPUT_CAP_BYTES,
-          shell: false,
-          windowsHide: true,
-          killSignal: "SIGKILL",
-          detached: platform !== "win32",
-          env: minimalEnv(env, platform),
-          encoding: "utf8",
-        },
-        (error, stdout, stderr) => {
-          const text = `${stderr ?? ""}\n${stdout ?? ""}`.slice(0, JAVA_OUTPUT_CAP_BYTES);
-          if (error === null) {
-            finish(classify(text));
-            return;
-          }
-          const code = error.code;
-          if (code === "ENOENT") finish({ status: "missing" });
-          else if (code === "EACCES" || code === "EPERM") {
-            finish({ status: "failed", cause: "access" });
-          } else if (code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") finish(classify(text));
-          else if (error.killed === true) finish({ status: "failed", cause: "timeout" });
-          // A non-zero exit that still printed the version text is read like a normal run.
-          else if (text.trim().length > 0) finish(classify(text));
-          else finish({ status: "failed", cause: "error" });
-        },
-      ) as typeof child;
-      if (!settled) {
-        timer = setTimeout(() => {
-          killChild();
-          finish({ status: "failed", cause: "timeout" });
-        }, timeoutMs + 250);
-        timer.unref();
-      }
+      child = spawnChild(file, ["-version"], {
+        stdio: ["ignore", "pipe", "pipe"],
+        shell: false,
+        windowsHide: true,
+        env: minimalEnv(env, platform),
+      });
+      process.once("exit", killOnExit);
+      const stderrChunks: string[] = [];
+      const stdoutChunks: string[] = [];
+      let size = 0;
+      let isCapped = false;
+      const text = (): string =>
+        `${stderrChunks.join("")}\n${stdoutChunks.join("")}`.slice(0, JAVA_OUTPUT_CAP_BYTES);
+      const collect = (into: string[]) => (chunk: unknown) => {
+        if (isCapped) return;
+        const piece = String(chunk);
+        size += piece.length;
+        into.push(piece);
+        if (size > JAVA_OUTPUT_CAP_BYTES) {
+          isCapped = true;
+          killOnExit();
+          finish(classify(text()));
+        }
+      };
+      child.stdout?.on("data", collect(stdoutChunks));
+      child.stderr?.on("data", collect(stderrChunks));
+      child.stdout?.on("error", () => undefined);
+      child.stderr?.on("error", () => undefined);
+      child.once("error", ((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") finish({ status: "missing" });
+        else if (error.code === "EACCES" || error.code === "EPERM") {
+          finish({ status: "failed", cause: "access" });
+        } else finish({ status: "failed", cause: "error" });
+      }) as never);
+      child.once("close", ((code: number | null) => {
+        const output = text();
+        if (code === 0) finish(classify(output));
+        // A non-zero exit that still printed the version text is read like a normal run.
+        else if (output.trim().length > 0) finish(classify(output));
+        else finish({ status: "failed", cause: "error" });
+      }) as never);
+      timer = setTimeout(() => {
+        killOnExit();
+        finish({ status: "failed", cause: "timeout" });
+      }, timeoutMs);
+      timer.unref();
     } catch {
+      killOnExit();
       finish({ status: "failed", cause: "error" });
     }
   });

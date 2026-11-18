@@ -293,8 +293,8 @@ describe("runDoctor Java runtime row", () => {
       const { code, row } = await run(withJava(text));
       expect(code).toBe(0);
       expect(row, text).toContain("[warn]");
-      expect(row, text).toContain("a release line the vendor notice does not cover");
-      expect(row, text).toContain("out of support; it may be affected");
+      expect(row, text).toContain("an older release line the vendor notice does not cover");
+      expect(row, text).toContain("out of support); it may be affected");
       expect(row, text).not.toContain("not in PGARD's list");
       expect(row, text).not.toMatch(/safe|secure|not vulnerable/i);
     }

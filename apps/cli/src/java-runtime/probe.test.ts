@@ -1,19 +1,17 @@
-import { chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { EventEmitter } from "node:events";
+import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   JAVA_OUTPUT_CAP_BYTES,
   JAVA_TIMEOUT_MS,
   readJavaVersionOutput,
   resolveJavaExecutable,
+  type JavaChild,
+  type SpawnFn,
 } from "./probe.js";
-
-type Callback = (
-  error: (Error & { code?: unknown; killed?: boolean }) | null,
-  stdout: string,
-  stderr: string,
-) => void;
 
 interface Call {
   file: string;
@@ -21,29 +19,50 @@ interface Call {
   options: Record<string, unknown>;
 }
 
-/** A fake execFile: records the call and answers with `reply`. Never starts a process. */
-function fake(reply: (callback: Callback) => void, calls: Call[] = []) {
-  return (
-    file: string,
-    args: readonly string[],
-    options: Record<string, unknown>,
-    cb: Callback,
-  ) => {
+interface FakeChild extends JavaChild {
+  emitter: EventEmitter;
+  out: PassThrough;
+  err: PassThrough;
+  signals: string[];
+}
+
+/** A fake child process: nothing is started. `script` drives it after it is "spawned". */
+function fakeSpawn(script: (child: FakeChild) => void, calls: Call[] = []): SpawnFn {
+  return (file, args, options) => {
     calls.push({ file, args, options });
-    reply(cb);
-    return undefined;
+    const emitter = new EventEmitter();
+    const out = new PassThrough();
+    const err = new PassThrough();
+    const signals: string[] = [];
+    const child: FakeChild = {
+      emitter,
+      out,
+      err,
+      signals,
+      stdout: out,
+      stderr: err,
+      kill: (signal) => {
+        signals.push(signal ?? "SIGTERM");
+        return true;
+      },
+      once: (event, listener) => emitter.once(event, listener as never),
+    };
+    queueMicrotask(() => script(child));
+    return child;
   };
 }
 
-function failure(code: unknown, extra: { killed?: boolean } = {}) {
-  return Object.assign(new Error("boom"), { code, ...extra });
-}
+const closeWith = (child: FakeChild, code: number | null) => child.emitter.emit("close", code);
+const fail = (code: string) => (child: FakeChild) =>
+  child.emitter.emit("error", Object.assign(new Error("boom"), { code }));
 
 /** Only these absolute files "exist". */
 const exists =
   (...files: string[]) =>
   (file: string) =>
     files.includes(file);
+
+const LINUX = { env: { PATH: "/usr/bin" }, platform: "linux" as const, isFile: () => true };
 
 describe("resolveJavaExecutable", () => {
   it("uses JAVA_HOME/bin/java when it is absolute and the file exists, else the PATH", () => {
@@ -142,23 +161,25 @@ describe("resolveJavaExecutable", () => {
 });
 
 describe("readJavaVersionOutput", () => {
-  it("runs the resolved absolute java with `-version`, no shell, SIGKILL, a cap and a minimal environment", async () => {
+  it("spawns the resolved absolute java with `-version`: no shell, no stdin, a minimal environment", async () => {
     const calls: Call[] = [];
     const probe = await readJavaVersionOutput({
       env: { PATH: "/usr/bin", GITHUB_TOKEN: "ghp_secret", HOME: "/home/me", JAVA_HOME: "" },
       platform: "linux",
       isFile: exists("/usr/bin/java"),
-      execFile: fake((cb) => cb(null, "", 'openjdk version "17.0.21"'), calls) as never,
+      spawn: fakeSpawn((child) => {
+        child.err.write('openjdk version "17.0.21"\n');
+        closeWith(child, 0);
+      }, calls),
     });
-    expect(probe).toEqual({ status: "output", text: 'openjdk version "17.0.21"\n' });
+    expect(probe).toEqual({ status: "output", text: 'openjdk version "17.0.21"\n\n' });
     expect(calls).toHaveLength(1);
     expect(calls[0]?.file).toBe("/usr/bin/java");
     expect(calls[0]?.args).toEqual(["-version"]);
     expect(calls[0]?.options["shell"]).toBe(false);
-    expect(calls[0]?.options["timeout"]).toBe(JAVA_TIMEOUT_MS);
-    expect(calls[0]?.options["killSignal"]).toBe("SIGKILL");
-    expect(calls[0]?.options["maxBuffer"]).toBe(JAVA_OUTPUT_CAP_BYTES);
+    expect(calls[0]?.options["stdio"]).toEqual(["ignore", "pipe", "pipe"]);
     expect(calls[0]?.options["env"]).toEqual({ PATH: "/usr/bin", JAVA_HOME: "" });
+    expect(JAVA_TIMEOUT_MS).toBe(5000);
   });
 
   it("does not run anything when no trusted java exists", async () => {
@@ -167,124 +188,151 @@ describe("readJavaVersionOutput", () => {
       env: { PATH: ".:" },
       platform: "linux",
       isFile: () => true,
-      execFile: fake((cb) => cb(null, "", "x"), calls) as never,
+      spawn: fakeSpawn(() => undefined, calls),
     });
     expect(probe).toEqual({ status: "missing" });
     expect(calls).toHaveLength(0);
   });
 
   it("reports no Java for ENOENT and for the macOS stub message", async () => {
-    const base = { env: { PATH: "/usr/bin" }, platform: "linux" as const, isFile: () => true };
-    const missing = await readJavaVersionOutput({
-      ...base,
-      execFile: fake((cb) => cb(failure("ENOENT"), "", "")) as never,
+    expect(await readJavaVersionOutput({ ...LINUX, spawn: fakeSpawn(fail("ENOENT")) })).toEqual({
+      status: "missing",
     });
-    expect(missing).toEqual({ status: "missing" });
     const stub = await readJavaVersionOutput({
-      ...base,
-      execFile: fake((cb) =>
-        cb(failure(1), "", "The operation couldn't be completed. Unable to locate a Java Runtime."),
-      ) as never,
+      ...LINUX,
+      spawn: fakeSpawn((child) => {
+        child.err.write("The operation couldn't be completed. Unable to locate a Java Runtime.");
+        closeWith(child, 1);
+      }),
     });
     expect(stub).toEqual({ status: "missing" });
   });
 
-  it("reports a Java that cannot be run: permission denied, timeout, other errors", async () => {
-    const run = (error: Error) =>
-      readJavaVersionOutput({
-        env: { PATH: "/usr/bin" },
-        platform: "linux",
-        isFile: () => true,
-        execFile: fake((cb) => cb(error, "", "")) as never,
-      });
-    expect(await run(failure("EACCES"))).toEqual({ status: "failed", cause: "access" });
-    expect(await run(failure(null, { killed: true }))).toEqual({
+  it("reports a Java that cannot be run: permission denied, other errors, silent failure", async () => {
+    expect(await readJavaVersionOutput({ ...LINUX, spawn: fakeSpawn(fail("EACCES")) })).toEqual({
       status: "failed",
-      cause: "timeout",
+      cause: "access",
     });
-    expect(await run(failure(1))).toEqual({ status: "failed", cause: "error" });
+    expect(await readJavaVersionOutput({ ...LINUX, spawn: fakeSpawn(fail("EMFILE")) })).toEqual({
+      status: "failed",
+      cause: "error",
+    });
+    expect(
+      await readJavaVersionOutput({ ...LINUX, spawn: fakeSpawn((child) => closeWith(child, 1)) }),
+    ).toEqual({ status: "failed", cause: "error" });
   });
 
   it("still reads the version of a non-zero exit that printed it", async () => {
     const probe = await readJavaVersionOutput({
-      env: { PATH: "/usr/bin" },
-      platform: "linux",
-      isFile: () => true,
-      execFile: fake((cb) => cb(failure(1), "", 'openjdk version "21.0.13"')) as never,
+      ...LINUX,
+      spawn: fakeSpawn((child) => {
+        child.err.write('openjdk version "21.0.13"');
+        closeWith(child, 1);
+      }),
     });
     expect(probe.status).toBe("output");
   });
 
-  it("keeps only the capped output when the child printed too much", async () => {
-    const big = "x".repeat(JAVA_OUTPUT_CAP_BYTES * 3);
+  it("kills the child and keeps the capped output when it prints too much", async () => {
+    let seen: FakeChild | undefined;
     const probe = await readJavaVersionOutput({
-      env: { PATH: "/usr/bin" },
-      platform: "linux",
-      isFile: () => true,
-      execFile: fake((cb) =>
-        cb(failure("ERR_CHILD_PROCESS_STDIO_MAXBUFFER", { killed: true }), "", big),
-      ) as never,
+      ...LINUX,
+      spawn: fakeSpawn((child) => {
+        seen = child;
+        child.err.write("x".repeat(JAVA_OUTPUT_CAP_BYTES * 3));
+      }),
     });
     expect(probe.status).toBe("output");
     if (probe.status === "output") {
       expect(probe.text.length).toBeLessThanOrEqual(JAVA_OUTPUT_CAP_BYTES);
     }
+    expect(seen?.signals).toEqual(["SIGKILL"]);
   });
 
-  it("never throws, even when execFile itself throws", async () => {
+  it("never throws, even when spawn itself throws", async () => {
     const probe = await readJavaVersionOutput({
-      env: { PATH: "/usr/bin" },
-      platform: "linux",
-      isFile: () => true,
-      execFile: (() => {
+      ...LINUX,
+      spawn: () => {
         throw new Error("spawn exploded");
-      }) as never,
+      },
     });
     expect(probe).toEqual({ status: "failed", cause: "error" });
   });
 
-  it("answers 'timeout' on its own timer when the callback never fires", async () => {
-    const killed: string[] = [];
+  it("answers 'timeout' and sends SIGKILL (not SIGTERM) when the child never closes", async () => {
+    let seen: FakeChild | undefined;
     const started = Date.now();
     const probe = await readJavaVersionOutput({
       env: { PATH: "/usr/bin" },
-      platform: "win32",
-      cwd: "C:\\elsewhere",
-      timeoutMs: 50,
+      platform: "linux",
       isFile: () => true,
-      // A runner that never answers (a child that ignores signals, or a held-open pipe).
-      execFile: (() => ({ kill: (signal: string) => killed.push(signal) })) as never,
-    });
-    // PATH has no drive-absolute entry on win32, so use a fitting one.
-    expect(probe.status).toBe("missing");
-    const probe2 = await readJavaVersionOutput({
-      env: { PATH: "C:\\jdk\\bin" },
-      platform: "win32",
-      cwd: "C:\\elsewhere",
       timeoutMs: 50,
-      isFile: () => true,
-      execFile: (() => ({ kill: (signal: string) => killed.push(signal) })) as never,
+      spawn: fakeSpawn((child) => {
+        seen = child;
+      }),
     });
-    expect(probe2).toEqual({ status: "failed", cause: "timeout" });
-    expect(killed).toEqual(["SIGKILL"]);
+    expect(probe).toEqual({ status: "failed", cause: "timeout" });
+    expect(seen?.signals).toEqual(["SIGKILL"]);
     expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  it("kills an in-flight child when PGARD exits, and stops listening afterwards", async () => {
+    const known = process.listeners("exit");
+    const before = known.length;
+    let seen: FakeChild | undefined;
+    const pending = readJavaVersionOutput({
+      ...LINUX,
+      spawn: fakeSpawn((child) => {
+        seen = child;
+      }),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(process.listenerCount("exit")).toBe(before + 1);
+    // Call only our own listener; emitting "exit" would run every other one too.
+    const ours = process.listeners("exit").find((listener) => !known.includes(listener));
+    (ours as (() => void) | undefined)?.();
+    expect(seen?.signals).toEqual(["SIGKILL"]);
+    if (seen !== undefined) closeWith(seen, 0);
+    await pending;
+    expect(process.listenerCount("exit")).toBe(before);
   });
 });
 
-describe.skipIf(process.platform === "win32")("a real child that ignores SIGTERM", () => {
+describe.skipIf(process.platform === "win32")("a real child process (a test-only script)", () => {
   const scratch: string[] = [];
   afterEach(async () => {
-    for (const dir of scratch.splice(0)) await rm(dir, { recursive: true, force: true });
+    for (const dir of scratch.splice(0)) {
+      try {
+        process.kill(Number((await readFile(path.join(dir, "pid"), "utf8")).trim()), "SIGKILL");
+      } catch {
+        // already gone
+      }
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
-  it("is killed with its own children and reported as a timeout", async () => {
+  async function fakeJava(body: string): Promise<string> {
     const home = await mkdtemp(path.join(tmpdir(), "pgard-fakejava-"));
     scratch.push(home);
     await mkdir(path.join(home, "bin"));
     const script = path.join(home, "bin", "java");
-    // Test-only script, not a real java: it traps TERM and keeps a grandchild alive.
-    await writeFile(script, "#!/bin/sh\ntrap '' TERM\nsleep 30 &\nsleep 30\n");
+    await writeFile(script, `#!/bin/sh\necho $$ > "${path.join(home, "pid")}"\n${body}\n`);
     await chmod(script, 0o755);
+    return home;
+  }
+
+  const gone = (pid: number): boolean => {
+    try {
+      process.kill(pid, 0);
+      return false;
+    } catch {
+      return true;
+    }
+  };
+
+  it("is killed after the timeout even though it ignores SIGTERM, and is gone afterwards", async () => {
+    // No grandchild: a shell loop that traps TERM.
+    const home = await fakeJava("trap '' TERM\nwhile :; do :; done");
     const started = Date.now();
     const probe = await readJavaVersionOutput({
       env: { PATH: "/usr/bin:/bin", JAVA_HOME: home },
@@ -292,5 +340,20 @@ describe.skipIf(process.platform === "win32")("a real child that ignores SIGTERM
     });
     expect(probe).toEqual({ status: "failed", cause: "timeout" });
     expect(Date.now() - started).toBeLessThan(3000);
+    const pid = Number((await readFile(path.join(home, "pid"), "utf8")).trim());
+    for (let i = 0; i < 20 && !gone(pid); i += 1) await new Promise((r) => setTimeout(r, 25));
+    expect(gone(pid)).toBe(true);
+  });
+
+  it("has no readable stdin: a `read` returns at once with end of input", async () => {
+    const home = await fakeJava("read line\necho 'openjdk version \"17.0.21\"' >&2");
+    const started = Date.now();
+    const probe = await readJavaVersionOutput({
+      env: { PATH: "/usr/bin:/bin", JAVA_HOME: home },
+      timeoutMs: 2000,
+    });
+    expect(probe.status).toBe("output");
+    if (probe.status === "output") expect(probe.text).toContain('openjdk version "17.0.21"');
+    expect(Date.now() - started).toBeLessThan(1500);
   });
 });

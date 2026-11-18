@@ -6,7 +6,7 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 
 ### Added
 
-- `pgard doctor` has a "Java runtime" row (#518): it runs `java -version` locally (`JAVA_HOME/bin/java` first, no shell, 5 s limit, no network) and compares the version with a list of known-vulnerable releases shipped in the package, starting with CVE-2026-91403 (critical). A listed version is a `[warn]` with the list date and the vendor link; a release line the notice does not cover that is older than the newest listed one (7, 9, 10, 22) is a `[warn]` ("out of support; it may be affected"); any other version is shown as `[info]` "not in PGARD's list" (not a safety claim); `java` is found only through `JAVA_HOME` or the absolute PATH entries, never the current directory; an unreadable one is "not judged"; no Java is an `[info]` row. The exit code is unchanged.
+- `pgard doctor` has a "Java runtime" row (#518): it runs `java -version` locally (`JAVA_HOME/bin/java` first, no shell, 5 s limit, no network) and compares the version with a list of known-vulnerable releases shipped in the package, starting with CVE-2026-91403 (critical). A listed version is a `[warn]` with the list date and the vendor link; a release line the notice does not cover that is older than the newest listed one (7, 9, 10, 22) is a `[warn]` ("an older release line, out of support; it may be affected"); any other version is shown as `[info]` "not in PGARD's list" (not a safety claim); `java` is found only through `JAVA_HOME` or the absolute PATH entries, never the current directory; an unreadable one is "not judged"; no Java is an `[info]` row. The exit code is unchanged.
 
 ### Security
 

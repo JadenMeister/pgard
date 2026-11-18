@@ -551,7 +551,7 @@ overwritten. Saving inside the Git repository risks committing the report.`,
     javaListed: (version, cve, severity, alertDate, listDate, link) =>
       `Java ${version} is listed as affected by ${cve} (${severity}; vendor alert ${alertDate}). Update to a fixed release from your JDK vendor; PGARD's list date: ${listDate}. Source: ${link}`,
     javaOlderLine: (version, listDate) =>
-      `Java ${version} is a release line the vendor notice does not cover (out of support; it may be affected). Check with your JDK vendor (PGARD's list date: ${listDate})`,
+      `Java ${version} is an older release line the vendor notice does not cover (out of support); it may be affected. Check with your JDK vendor (PGARD's list date: ${listDate})`,
     javaNotListed: (version, listDate) =>
       `Java ${version} is not in PGARD's list (list date ${listDate}); the list does not cover every issue`,
     javaUnreadable: "a Java runtime was found but its version could not be read; not judged",
