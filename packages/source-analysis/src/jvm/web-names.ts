@@ -48,9 +48,18 @@ export const OTHER_CONTENT =
 export const BODY_CLASS_ANNOTATIONS = new Set(["RestController", "ResponseBody"]);
 
 /** Calls on a `Model`, `ModelAndView` or request that make a value available to a template. */
-export const MODEL_ADDERS = new Set(["addAttribute", "addObject", "put", "setAttribute"]);
+export const MODEL_ADDERS = new Set([
+  "addAttribute",
+  "addFlashAttribute",
+  "addObject",
+  "put",
+  "setAttribute",
+]);
 export const MODEL_TYPES = /^(?:Model|ModelMap|ModelAndView|ExtendedModelMap|RedirectAttributes)$/;
-export const MODEL_NAME = /^(?:model|modelMap|mav|modelAndView|map|attributes)$/i;
+export const MODEL_NAME =
+  /^(?:model|modelMap|mav|modelAndView|map|attributes|redirectAttributes|redirectAttrs|flash|flashAttributes)$/i;
+/** `addFlashAttribute` is a model value for the view a redirect leads to (#338). */
+export const FLASH_ADDER = "addFlashAttribute";
 
 // ------------------------------------------------------------------ escaping
 
@@ -213,3 +222,39 @@ export const TEMPLATE_ENGINES: Record<string, string> = {
 /** Reflection: a call made through it is not followed. */
 export const REFLECTION_TEXT =
   /\b(?:Class\.forName|getDeclaredMethod|getMethod|MethodHandles\.lookup|Proxy\.newProxyInstance)\s*\(|::class\.java\.get(?:Declared)?Method\b/;
+
+// ------------------------------------------------------------------ implicit receivers (#339)
+
+/** Names that an extension function on a response type reads from its receiver without naming it. */
+export const IMPLICIT_RESPONSE_CALLS = new Set([
+  "getWriter",
+  "getOutputStream",
+  "setContentType",
+  "setHeader",
+  "addHeader",
+]);
+export const IMPLICIT_RESPONSE_IDS = new Set(["writer", "outputStream"]);
+/** An extension on a request type (Ktor `ApplicationCall`) answers with its own `respond...` calls. */
+export const IMPLICIT_RESPOND_CALL = /^respond\w*$/;
+/** Receiver types whose bare calls in an extension function are not followed. */
+export const UNFOLLOWED_RECEIVERS = new Set([
+  "URL",
+  "URI",
+  "HttpClient",
+  "WebClient",
+  "RestTemplate",
+  "OkHttpClient",
+]);
+/** Calls on those receivers that open a URL or start a request. */
+export const UNFOLLOWED_RECEIVER_CALLS = new Set([
+  ...URL_OPENERS,
+  ...URL_READERS,
+  ...REST_TEMPLATE_UNIQUE,
+  ...REST_TEMPLATE_SHARED,
+  ...HTTP_VERBS,
+  "uri",
+  "baseUrl",
+  "send",
+  "sendAsync",
+  "newCall",
+]);

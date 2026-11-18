@@ -20,6 +20,7 @@ import {
   THYMELEAF_ESCAPE,
 } from "./jvm/templates.js";
 import { withoutTrailingQuotes } from "./python/analyze-python.js";
+import { matchesTemplate, modelAttributeName, normalizePath } from "./jvm/view-links.js";
 
 /**
  * The patterns the #368 audit found superlinear on the tree-sitter path (#371). A crafted input of
@@ -521,5 +522,49 @@ describe("Vue template scopes stay linear (#278 review)", () => {
     expect(value.findings).toHaveLength(1);
     // Copying every outer alias at each level took about 14 s here; linear takes well under 1 s.
     expect(ms).toBeLessThan(LIMIT_MS * 8);
+  });
+});
+
+describe("view and mapping patterns (#338)", () => {
+  it("normalizePath is linear on long runs of slashes, dots and a long query", () => {
+    for (const input of [
+      "/".repeat(SIZE),
+      `${"a/".repeat(SIZE / 2)}?${"&".repeat(SIZE)}`,
+      `${".".repeat(SIZE)}/x`,
+    ]) {
+      const { value, ms } = timed(() => normalizePath(input));
+      expect(typeof value).toBe("string");
+      expect(ms).toBeLessThan(LIMIT_MS);
+    }
+    expect(normalizePath("//a///b/?x=1#f")).toBe("/a/b");
+    expect(normalizePath("")).toBe("/");
+  });
+  it("matchesTemplate is linear on many segments and long braces", () => {
+    const many = "/a".repeat(SIZE / 4);
+    const braces = `/${"{".repeat(SIZE)}`;
+    for (const [mapping, target] of [
+      [many, many],
+      [braces, `/${"x".repeat(SIZE)}`],
+      [`${many}/{id}`, `${many}/${"9".repeat(SIZE / 2)}`],
+    ] as const) {
+      const { ms } = timed(() => matchesTemplate(mapping, target));
+      expect(ms).toBeLessThan(LIMIT_MS);
+    }
+    expect(matchesTemplate("/items/{id}", "/items/7")).toBe(true);
+    expect(matchesTemplate("/items/{id}", "/items/7/x")).toBe(false);
+  });
+  it("modelAttributeName is linear on long return types", () => {
+    const annotation = { name: "ModelAttribute", value: null, named: new Map(), line: 1 };
+    for (const type of [
+      "a.".repeat(SIZE / 2),
+      `List<${"a.".repeat(SIZE / 2)}`,
+      "A".repeat(SIZE),
+      `${"List<".repeat(SIZE / 8)}x`,
+    ]) {
+      const { ms } = timed(() => modelAttributeName(annotation, type));
+      expect(ms).toBeLessThan(LIMIT_MS);
+    }
+    expect(modelAttributeName(annotation, "List<Item>")).toBe("itemList");
+    expect(modelAttributeName(annotation, "String")).toBe("string");
   });
 });

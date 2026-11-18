@@ -218,8 +218,14 @@ describe("PG-SSRF-002: severity, bases and guards (mutants)", () => {
 });
 
 describe("web rules: partial forms", () => {
-  it("a Kotlin extension function that writes to the response is reported as unsupported", async () => {
+  it("a Kotlin extension function that writes to the response is analyzed through its receiver (#339)", async () => {
     const source = `import javax.servlet.http.HttpServletResponse\nfun HttpServletResponse.page(name: String) {\nwriter.write("<p>" + name + "</p>")\n}\n`;
+    const analysis = await run(source, "K.kt");
+    expect(of(analysis, XSS)).toHaveLength(1);
+    expect(analysis.unsupportedForms).not.toContain("extension function");
+  });
+  it("a Kotlin extension on another type that writes through an implicit writer is reported as unsupported", async () => {
+    const source = `class Page\nfun Page.page(name: String) {\nwriter.write("<p>" + name + "</p>")\n}\n`;
     expect((await run(source, "K.kt")).unsupportedForms).toContain("extension function");
   });
 });

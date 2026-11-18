@@ -354,6 +354,18 @@ export function convertKotlin(ast: AstResult): Unit {
         const argument = named(node, "argument") ?? nonAnon(node).at(-1);
         // `x!!` keeps the value of `x`; `!x`, `-x` and `++x` are not text.
         if (opOf(node) === "!!" && argument !== undefined) return expr(argument, depth + 1);
+        // kotlinx.html writes raw text with `+text` inside `unsafe { }`: the engine reads it there
+        // and gives any other `+x` no value, as before.
+        if (opOf(node) === "+" && argument !== undefined) {
+          return {
+            k: "call",
+            line,
+            recv: null,
+            name: "unaryPlus",
+            args: [expr(argument, depth + 1)],
+            lambdas: [],
+          };
+        }
         return { k: "lit", line };
       }
       case "lambda_literal":
@@ -767,27 +779,16 @@ export function convertKotlin(ast: AstResult): Unit {
         case "function_declaration": {
           const nameNode = named(member, "name");
           const fnBody = ofType(member, "function_body");
-          // An extension function reads its receiver's members without naming it (`writer.write(x)`):
-          // the receiver's type is not followed, so web calls in the body are not analyzed.
-          const receiverType =
+          // An extension function reads its receiver's members without naming it
+          // (`writer.write(x)`, `respondText(x)`): the engine binds the receiver when it is a
+          // request or response type and reports the function as not followed when such a bare
+          // name cannot be tied to anything (#339).
+          const receiverNode =
             nameNode === undefined
               ? undefined
               : member.children.find(
                   (child) => TYPE_NODE.test(child.type) && child.start < nameNode.start,
                 );
-          // Only a servlet or HTTP client receiver, or a sink reached through the implicit `this`
-          // (`writer.write(x)`, not `call.writer`), is lost; a Ktor `Application.module()` is not.
-          if (
-            receiverType !== undefined &&
-            (/^(?:Http)?Servlet(?:Request|Response)\b|^HttpServlet\w*|^(?:URL|URI|HttpClient|WebClient|RestTemplate|OkHttpClient)\b/.test(
-              text(receiverType),
-            ) ||
-              /(?<![.\w])(?:writer|outputStream|getWriter\(\)|getOutputStream\(\))/.test(
-                text(member),
-              ))
-          ) {
-            unit.unsupported.push("extension function");
-          }
           let stmts: Stmt[] | null = null;
           if (fnBody !== undefined) {
             const inner = nonAnon(fnBody)[0];
@@ -802,6 +803,7 @@ export function convertKotlin(ast: AstResult): Unit {
             body: stmts,
             line: member.line,
             returnType: declType(member),
+            ...(receiverNode === undefined ? {} : { receiverType: text(receiverNode) }),
           } satisfies MethodInfo);
           break;
         }

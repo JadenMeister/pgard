@@ -34,7 +34,15 @@ import {
 import { ARCHIVE_ENTRY_TYPE } from "./os-names.js";
 import { createOsSinks, type OsFinding } from "./os-sinks.js";
 import { createWebSinks, type ModelAttribute, type WebFinding } from "./web-sinks.js";
-import { RESPONSE_NAME, RESPONSE_TYPES } from "./web-names.js";
+import {
+  IMPLICIT_RESPOND_CALL,
+  IMPLICIT_RESPONSE_CALLS,
+  IMPLICIT_RESPONSE_IDS,
+  RESPONSE_NAME,
+  RESPONSE_TYPES,
+  UNFOLLOWED_RECEIVERS,
+  UNFOLLOWED_RECEIVER_CALLS,
+} from "./web-names.js";
 import {
   ARCHIVE_IMPORT_PREFIXES,
   COLLECTION_CLASSES,
@@ -168,12 +176,25 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
   });
   const web = createWebSinks({
     typeOfExpr: (expr, ctx) => typeOfExpr(expr, ctx),
+    evaluate: (expr, ctx) => evalExpr(expr, ctx, 0),
     record: (finding, rank) => record(finding, rank),
     imports: unit.imports,
   });
   /** The method and class being analyzed (a handler's return value is a sink of the XSS rule). */
   let currentMethod: MethodInfo | null = null;
   let currentClass: ClassInfo | null = null;
+  /**
+   * The receiver of a Kotlin extension function whose type is a request or response (`fun
+   * ApplicationCall.greet()`): bare `respondText(...)`, `parameters[...]` or `writer` in the body
+   * are read as members of it (#339). `unbound`: an extension on another type, where a bare
+   * `writer` or `getWriter()` cannot be tied to a response and the function is reported as not followed.
+   */
+  let implicitKind: "request" | "response" | "unbound" | null = null;
+  const THIS_EXPR = (line: number): Expr => ({ k: "id", line, name: "this" });
+  /** Lambdas of kotlinx.html `unsafe { }` calls. */
+  const unsafeLambdas = new WeakSet<LambdaExpr>();
+  /** Names of the functions declared in this file: a bare call to one is that function. */
+  const fileFunctionNames = new Set<string>();
   const fieldValues = new Map<FieldInfo, Value | null>();
   // Names that are written through an index or a mutating call anywhere in the file: a literal
   // array or collection under such a name is not a fixed table.
@@ -646,6 +667,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       scope,
       conditional: ctx.conditional + 1,
       builders: implicit === null ? ctx.builders : [...ctx.builders, implicit],
+      ...(unsafeLambdas.has(lambda) ? { unsafe: true } : {}),
     };
     execStmts(lambda.body, inner, depth + 1);
   }
@@ -698,8 +720,41 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     return current.k === "id" && /^[a-z][a-z0-9_]*$/.test(current.name) ? expr.name : null;
   }
 
-  function evalCall(expr: Extract<Expr, { k: "call" }>, ctx: Context, depth: number): Value {
+  /** A bare call in an extension function, read as a call on its receiver (#339). */
+  function withImplicitReceiver(
+    expr: Extract<Expr, { k: "call" }>,
+    ctx: Context,
+  ): Extract<Expr, { k: "call" }> {
+    if (expr.recv !== null || implicitKind === null || declaredHere(expr.name, ctx)) return expr;
     const { name } = expr;
+    if (
+      (implicitKind === "request" &&
+        (REQUEST_SOURCES.has(name) ||
+          REQUEST_SELF.has(name) ||
+          IMPLICIT_RESPOND_CALL.test(name))) ||
+      (implicitKind === "response" && IMPLICIT_RESPONSE_CALLS.has(name))
+    ) {
+      return { ...expr, recv: THIS_EXPR(expr.line) };
+    }
+    if (implicitKind === "unbound") {
+      const receiver = baseType(currentMethod?.receiverType ?? null);
+      if (
+        name === "getWriter" ||
+        name === "getOutputStream" ||
+        (UNFOLLOWED_RECEIVERS.has(receiver) && UNFOLLOWED_RECEIVER_CALLS.has(name))
+      ) {
+        unit.unsupported.push("extension function");
+      }
+    }
+    return expr;
+  }
+
+  function evalCall(original: Extract<Expr, { k: "call" }>, ctx: Context, depth: number): Value {
+    const expr = withImplicitReceiver(original, ctx);
+    const { name } = expr;
+    if (name === "unsafe" && expr.lambdas.length > 0) {
+      for (const lambda of expr.lambdas) unsafeLambdas.add(lambda);
+    }
     let recv: Value | null = null;
     let typeReceiver = false;
     let className = "";
@@ -953,12 +1008,36 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     return value(leaves, { builder: true, composed: true, shape: "StringBuilder" });
   }
 
-  function evalIdentifier(name: string, ctx: Context): Value {
+  /** A name the body declares (a local, a field, a function of this file): not the receiver's. */
+  const declaredHere = (name: string, ctx: Context): boolean =>
+    ctx.scope.lookup(name) !== null ||
+    lookupField(ctx.cls, name) !== null ||
+    fileFunctionNames.has(name);
+
+  const implicitValue = (): Value =>
+    implicitKind === "response" ? value([], { web: "response" }) : value([], { req: true });
+
+  function evalIdentifier(name: string, ctx: Context, line = 0): Value {
     if (name === "true" || name === "false" || name === "null") return value();
+    if (name === "this" && (implicitKind === "request" || implicitKind === "response")) {
+      return implicitValue();
+    }
     const hit = ctx.scope.lookup(name);
     if (hit !== null) return readBinding(hit.binding, ctx.deferred && hit.captured);
     const found = lookupField(ctx.cls, name);
     if (found !== null) return fieldRead(found.field, found.owner);
+    if (implicitKind !== null && !declaredHere(name, ctx)) {
+      // `parameters`, `queryParams`, `writer` in an extension function, read through its receiver.
+      if (
+        (implicitKind === "request" && (REQUEST_SOURCES.has(name) || REQUEST_SELF.has(name))) ||
+        (implicitKind === "response" && IMPLICIT_RESPONSE_IDS.has(name))
+      ) {
+        return evalMember({ k: "member", line, obj: THIS_EXPR(line), name }, ctx, 0);
+      }
+      if (implicitKind === "unbound" && IMPLICIT_RESPONSE_IDS.has(name)) {
+        unit.unsupported.push("extension function");
+      }
+    }
     if (isConstantCase(name)) return inferred("constant-style name defined in another file");
     if (REQUEST_NAME.test(name) && name !== "exchange") return value([], { req: true });
     return unknown(name);
@@ -1013,7 +1092,11 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     const { obj, name } = expr;
     if (obj.k === "id" && (obj.name === "this" || obj.name === "super")) {
       const found = lookupField(ctx.cls, name);
-      return found === null ? unknown(name) : fieldRead(found.field, found.owner);
+      if (found !== null) return fieldRead(found.field, found.owner);
+      // In an extension function on a request or response, `this.x` is a member of the receiver.
+      if (obj.name !== "this" || (implicitKind !== "request" && implicitKind !== "response")) {
+        return unknown(name);
+      }
     }
     if (
       obj.k === "id" &&
@@ -1068,7 +1151,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       case "lit":
         return value();
       case "id":
-        return evalIdentifier(expr.name, ctx);
+        return evalIdentifier(expr.name, ctx, expr.line);
       case "member":
         return evalMember(expr, ctx, depth);
       case "index": {
@@ -1664,6 +1747,21 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
 
   function assign(stmt: Extract<Stmt, { s: "assign" }>, ctx: Context, depth: number): void {
     const incoming = evalExpr(stmt.value, ctx, depth + 1);
+    if (
+      stmt.target.k === "id" &&
+      stmt.target.name === "contentType" &&
+      implicitKind === "response" &&
+      !declaredHere("contentType", ctx)
+    ) {
+      // `contentType = "text/html"` in an extension on a servlet response.
+      const line = stmt.target.line;
+      web.assigned(
+        { k: "member", line, obj: THIS_EXPR(line), name: "contentType" },
+        stmt.value,
+        ctx,
+      );
+      return;
+    }
     if (stmt.target.k !== "id") {
       // Stored in a field, an array or a collection: a builder can be changed from there.
       escape([incoming], "stored");
@@ -1915,16 +2013,27 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     const ctx = rootContext(cls, true);
     currentMethod = method;
     currentClass = cls;
-    web.startMethod();
+    implicitKind = null;
+    if (method.receiverType !== undefined) {
+      const receiver = baseType(method.receiverType);
+      implicitKind = REQUEST_TYPES.has(receiver)
+        ? "request"
+        : RESPONSE_TYPES.has(receiver)
+          ? "response"
+          : "unbound";
+    }
+    web.startMethod(method, cls);
     bindParameters(method, ctx);
     execStmts(method.body, ctx, 0);
     drainLambdas();
     web.endMethod();
     currentMethod = null;
     currentClass = null;
+    implicitKind = null;
   }
 
   const scopes: ClassInfo[] = [unit.top, ...unit.classes];
+  for (const cls of scopes) for (const method of cls.methods) fileFunctionNames.add(method.name);
   for (const cls of scopes) {
     const ctx = rootContext(cls === unit.top ? null : cls, true);
     for (const field of cls.fields.values()) {
@@ -1933,6 +2042,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     execStmts(cls.initializers, ctx, 0);
     drainLambdas();
     for (const method of cls.methods) analyzeMethod(method, cls);
+    web.endClass();
   }
 
   os.flush();

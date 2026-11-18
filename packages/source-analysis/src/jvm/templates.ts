@@ -15,6 +15,8 @@ export interface ModelSource {
   line: number;
   /** Literal view names the method that set it returns; empty when none is known. */
   views: string[];
+  /** Views beyond `views` could not be resolved: other templates keep the name-only match. */
+  partial?: boolean;
 }
 
 export interface TemplateAnalysis {
@@ -727,7 +729,7 @@ export function thymeleafLeaf(
         detail: `model attribute '${name}' is set from request input in ${linked.path}:${linked.line}`,
       };
     }
-    const byName = sources.find((source) => source.views.length === 0);
+    const byName = sources.find((source) => source.views.length === 0 || source.partial === true);
     if (byName !== undefined && weak === null) {
       weak = {
         cls: "unknown",

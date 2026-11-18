@@ -284,4 +284,6 @@ export interface Context {
   deferred: boolean;
   /** Report sinks (off while a field initializer is evaluated only for its value). */
   report: boolean;
+  /** Inside a kotlinx.html `unsafe { }` block: `+text` and `raw(text)` write markup as it is. */
+  unsafe?: boolean;
 }

@@ -183,7 +183,12 @@ export async function scanJvm(
               if (attribute.tainted) {
                 modelSources.set(attribute.name, [
                   ...(modelSources.get(attribute.name) ?? []),
-                  { path: file.relativePath, line: attribute.line, views: attribute.views },
+                  {
+                    path: file.relativePath,
+                    line: attribute.line,
+                    views: attribute.views,
+                    ...(attribute.partial === true ? { partial: true } : {}),
+                  },
                 ]);
               }
             }
