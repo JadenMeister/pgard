@@ -200,6 +200,7 @@ export interface CommandText {
       advisories: string;
       advisoryStore: string;
       ports: string;
+      java: string;
     };
     node: (version: string, minimums: string) => string;
     gitNotFound: string;
@@ -238,6 +239,18 @@ export interface CommandText {
     portsAvailable: (method: string) => string;
     portsUnavailable: (note: string) => string;
     unknownReason: string;
+    /** The Java runtime row: `link` is the first source of the advisory. */
+    javaListed: (
+      version: string,
+      cve: string,
+      severity: string,
+      listDate: string,
+      link: string,
+    ) => string;
+    javaNotListed: (version: string, listDate: string) => string;
+    javaUnreadable: string;
+    javaNotRun: (cause: "timeout" | "access" | "error") => string;
+    javaNone: string;
     allPassed: string;
     /** The `[info]` row: scans without approval are code-only (#414). */
     codeOnlyInfo: string;
@@ -490,6 +503,7 @@ overwritten. Saving inside the Git repository risks committing the report.`,
       advisories: "Advisory data (OSV)",
       advisoryStore: "Advisory data store",
       ports: "Local port discovery",
+      java: "Java runtime",
     },
     node: (version, minimums) => `${version} (requires ${minimums} or a newer patch on that line)`,
     gitNotFound: "not found",
@@ -532,6 +546,14 @@ overwritten. Saving inside the Git repository risks committing the report.`,
       `${method} available (lists can be incomplete; "Other port" is always offered)`,
     portsUnavailable: (note) => `unavailable (${note})`,
     unknownReason: "unknown reason",
+    javaListed: (version, cve, severity, listDate, link) =>
+      `Java ${version} is listed as affected by ${cve} (${severity}). Update to a fixed release from your JDK vendor; PGARD's list date: ${listDate}. Source: ${link}`,
+    javaNotListed: (version, listDate) =>
+      `Java ${version} is not in PGARD's list (list date ${listDate}); the list does not cover every issue`,
+    javaUnreadable: "a Java runtime was found but its version could not be read; not judged",
+    javaNotRun: (cause) =>
+      `a Java runtime was found but ${cause === "timeout" ? "did not answer within 5 seconds" : cause === "access" ? "could not be run (permission denied)" : "could not be run"}; not judged`,
+    javaNone: "No Java runtime found (nothing to check)",
     allPassed: "All required checks passed.",
     codeOnlyInfo:
       "Scans without owner approval: pgard scan code --code-only (current files, not saved).",
@@ -782,6 +804,7 @@ Git 저장소 안에 저장하면 보고서가 커밋될 위험이 있습니다.
       advisories: "취약점 데이터 (OSV)",
       advisoryStore: "취약점 데이터 저장 위치",
       ports: "로컬 포트 탐색",
+      java: "Java 런타임",
     },
     node: (version, minimums) =>
       `${version} (${minimums} 또는 해당 라인의 더 새로운 패치가 필요합니다)`,
@@ -825,6 +848,14 @@ Git 저장소 안에 저장하면 보고서가 커밋될 위험이 있습니다.
       `${method} 사용 가능 (목록이 불완전할 수 있으며 "다른 포트"는 항상 제공됩니다)`,
     portsUnavailable: (note) => `사용할 수 없음 (${note})`,
     unknownReason: "알 수 없는 이유",
+    javaListed: (version, cve, severity, listDate, link) =>
+      `Java ${version}은(는) ${cve}(${severity}) 영향 목록에 있습니다. JDK 제공사의 수정된 릴리스로 업데이트하세요. PGARD 목록 기준일: ${listDate}. 출처: ${link}`,
+    javaNotListed: (version, listDate) =>
+      `Java ${version}은(는) PGARD 목록에 없습니다 (목록 기준일 ${listDate}). 이 목록이 모든 문제를 다루지는 않습니다`,
+    javaUnreadable: "Java 런타임을 찾았지만 버전을 읽을 수 없어 판정하지 않았습니다",
+    javaNotRun: (cause) =>
+      `Java 런타임을 찾았지만 ${cause === "timeout" ? "5초 안에 응답하지 않아" : cause === "access" ? "실행할 수 없어(권한 없음)" : "실행할 수 없어"} 판정하지 않았습니다`,
+    javaNone: "Java 런타임을 찾을 수 없습니다 (검사할 것이 없음)",
     allPassed: "필수 점검을 모두 통과했습니다.",
     codeOnlyInfo: "소유자 승인 없는 검사: pgard scan code --code-only(현재 파일만, 저장하지 않음).",
     needAttention: (count) => `필수 점검 ${count}개에 확인이 필요합니다 (위의 [fail] 참고).`,

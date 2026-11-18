@@ -12,6 +12,9 @@ import { out, type CommandContext } from "../context.js";
 import { EXIT_CODES, type ExitCode } from "../exit-codes.js";
 import { safeText } from "../ui/formatters/style.js";
 import { cliText, type CliText } from "../ui/i18n/cli-text.js";
+import { JAVA_ADVISORIES, latestListDate } from "../java-runtime/advisories.js";
+import type { JavaProbe } from "../java-runtime/probe.js";
+import { matchJavaAdvisories, parseJavaVersionOutput } from "../java-runtime/version.js";
 import { localizeKeychainReason, networkHintText } from "../ui/i18n/command-text.js";
 
 /**
@@ -44,6 +47,8 @@ interface DoctorCheck {
   detail: string;
   /** Required checks are marked [fail] (others [warn]) when they do not pass. */
   isRequired: boolean;
+  /** Shown as [info] instead of [ok]/[warn]: a fact, not a pass or a problem. */
+  isInfo?: boolean;
 }
 
 function formatTime(epochMs: number): string {
@@ -198,6 +203,51 @@ async function describeAdvisoryData(context: CommandContext, t: CliText): Promis
 }
 
 /**
+ * The local Java runtime against the shipped list of known-vulnerable versions. Local only. It is
+ * never a [fail] and never says a version is fine: "not in the list" is an [info] fact, "listed" is
+ * a [warn], and a runtime that cannot be read is a [warn] "not judged" (not judged is not safe).
+ */
+function describeJava(probe: JavaProbe, t: CliText): DoctorCheck[] {
+  const text = t.commands.doctor;
+  const label = text.labels.java;
+  if (probe.status === "missing") {
+    return [{ label, isOk: true, isInfo: true, detail: text.javaNone, isRequired: false }];
+  }
+  if (probe.status === "failed") {
+    return [{ label, isOk: false, detail: text.javaNotRun(probe.cause), isRequired: false }];
+  }
+  const version = parseJavaVersionOutput(probe.text);
+  if (version === null) {
+    return [{ label, isOk: false, detail: text.javaUnreadable, isRequired: false }];
+  }
+  const shown = safeText(version.display, 40);
+  const listed = matchJavaAdvisories(version, JAVA_ADVISORIES);
+  if (listed.length === 0) {
+    return [
+      {
+        label,
+        isOk: true,
+        isInfo: true,
+        detail: text.javaNotListed(shown, latestListDate()),
+        isRequired: false,
+      },
+    ];
+  }
+  return listed.map((entry) => ({
+    label,
+    isOk: false,
+    detail: text.javaListed(
+      shown,
+      entry.cve,
+      entry.severity,
+      entry.listDate,
+      entry.sources[0] ?? "",
+    ),
+    isRequired: false,
+  }));
+}
+
+/**
  * `pgard doctor`: environment diagnosis only. It never authorizes a scan, never prints a token,
  * and works outside a project.
  */
@@ -205,11 +255,13 @@ export async function runDoctor(context: CommandContext): Promise<ExitCode> {
   const { deps, io, style } = context;
   const t = cliText(context.ruleLocale);
   const text = t.commands.doctor;
-  const [gitVersion, gitRoot, probes, discovery] = await Promise.all([
+  const [gitVersion, gitRoot, probes, discovery, java] = await Promise.all([
     deps.readGitVersion(),
     deps.findGitRoot(io.cwd).catch(() => null),
     deps.probeHosts(),
     deps.discoverListeningPorts(),
+    // Never throws and never fails the run: anything unexpected reads as "could not run".
+    deps.readJavaVersion().catch((): JavaProbe => ({ status: "failed", cause: "error" })),
   ]);
   const app = resolveGitHubAppClientId(io.env);
   const signIn = await describeStoredSignIn(context, app.clientId, t);
@@ -238,6 +290,7 @@ export async function runDoctor(context: CommandContext): Promise<ExitCode> {
     describeGitHubApp(app, t),
     { label: text.labels.signIn, ...signIn, isRequired: false },
     ...(await describeAdvisoryData(context, t)),
+    ...describeJava(java, t),
     {
       label: text.labels.ports,
       isOk: discovery.isAvailable,
@@ -249,11 +302,13 @@ export async function runDoctor(context: CommandContext): Promise<ExitCode> {
   ];
   out(context, style.bold(text.title));
   for (const check of checks) {
-    const mark = check.isOk
-      ? style.green("[ok]  ")
-      : check.isRequired
-        ? style.red("[fail]")
-        : style.yellow("[warn]");
+    const mark = check.isInfo
+      ? style.dim("[info]")
+      : check.isOk
+        ? style.green("[ok]  ")
+        : check.isRequired
+          ? style.red("[fail]")
+          : style.yellow("[warn]");
     out(context, `  ${mark} ${check.label}: ${check.detail}`);
   }
   out(context, `  ${style.dim("[info]")} ${text.codeOnlyInfo}`);

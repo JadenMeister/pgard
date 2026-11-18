@@ -9,6 +9,7 @@ import {
 import { describe, expect, it } from "vitest";
 import { main } from "./app.js";
 import { runDoctor } from "./commands/doctor.js";
+import type { JavaProbe } from "./java-runtime/probe.js";
 import { runLogout } from "./commands/login.js";
 import { runRulesList } from "./commands/rules/list.js";
 import {
@@ -161,6 +162,34 @@ describe("pgard doctor in Korean", () => {
     }
     expect(stdout).not.toContain("diagnosis only");
     expect(stdout).not.toContain("required checks");
+  });
+
+  it("shows the Java runtime row in Korean for listed, not listed, unreadable and missing", async () => {
+    const rowFor = async (probe: JavaProbe): Promise<string> => {
+      const captured = createTestIo();
+      const deps = createTestDeps({ readJavaVersion: async () => probe });
+      expect(await runDoctor(koContext(captured, deps))).toBe(0);
+      return (
+        captured
+          .stdout()
+          .split("\n")
+          .find((line) => line.includes("Java 런타임")) ?? ""
+      );
+    };
+    expect(await rowFor({ status: "output", text: 'openjdk version "17.0.21"' })).toBe(
+      "  [warn] Java 런타임: Java 17.0.21은(는) CVE-2026-91403(critical) 영향 목록에 있습니다. JDK 제공사의 수정된 릴리스로 업데이트하세요. PGARD 목록 기준일: 2026-11-18. 출처: https://www.oracle.com/security-alerts/alert-cve-2026-91403.html",
+    );
+    const notListed = await rowFor({ status: "output", text: 'openjdk version "17.0.22"' });
+    expect(notListed).toContain("[info]");
+    expect(notListed).toContain("PGARD 목록에 없습니다 (목록 기준일 2026-11-18)");
+    expect(notListed).not.toMatch(/안전|취약하지 않/);
+    expect(await rowFor({ status: "output", text: "???" })).toContain("판정하지 않았습니다");
+    expect(await rowFor({ status: "failed", cause: "timeout" })).toContain(
+      "5초 안에 응답하지 않아",
+    );
+    expect(await rowFor({ status: "missing" })).toBe(
+      "  [info] Java 런타임: Java 런타임을 찾을 수 없습니다 (검사할 것이 없음)",
+    );
   });
 
   it("reads the language from the environment, and a bad PGARD_LANG does not break it", async () => {
