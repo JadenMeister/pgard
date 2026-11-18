@@ -13,6 +13,7 @@ export type {
   ParsedLockfile,
 } from "./types.js";
 export { osvDataDir } from "./app-data.js";
+export { NETWORK_CAUSE_CODES, networkCauseCode } from "./osv/network-cause.js";
 export {
   ALLOWED_DOWNLOAD_HOSTS,
   DownloadError,

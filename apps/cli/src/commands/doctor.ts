@@ -5,13 +5,14 @@ import {
   type ResolvedGitHubAppClientId,
   type StoredSignInStatus,
 } from "@pgard/scan-core";
-import { osvDataDir } from "@pgard/dependencies";
+import { OSV_EXPORT_HOST, osvDataDir } from "@pgard/dependencies";
 import { scrubAbsolutePaths } from "@pgard/findings";
+import type { HostProbe } from "../deps.js";
 import { out, type CommandContext } from "../context.js";
 import { EXIT_CODES, type ExitCode } from "../exit-codes.js";
 import { safeText } from "../ui/formatters/style.js";
 import { cliText, type CliText } from "../ui/i18n/cli-text.js";
-import { localizeKeychainReason } from "../ui/i18n/command-text.js";
+import { localizeKeychainReason, networkHintText } from "../ui/i18n/command-text.js";
 
 /**
  * Oldest patched release per supported line, from the Node.js security
@@ -70,6 +71,31 @@ function describeGitHubApp(app: ResolvedGitHubAppClientId, t: CliText): DoctorCh
     case "invalid":
       return { label, isOk: false, detail: text.invalidApp(app.message), isRequired: true };
   }
+}
+
+/**
+ * One reachability row per host. A host that did not answer shows the whitelisted cause code and a
+ * fixed hint (proxy, TLS inspection, offline); never the error's own text.
+ */
+function describeHost(
+  probes: readonly HostProbe[],
+  host: string,
+  label: string,
+  isRequired: boolean,
+  t: CliText,
+): DoctorCheck {
+  const text = t.commands.doctor;
+  const probe = probes.find((candidate) => candidate.host === host);
+  if (probe?.isReachable === true) {
+    return { label, isOk: true, detail: text.reachable(host), isRequired };
+  }
+  const cause = probe?.causeCode ?? null;
+  return {
+    label,
+    isOk: false,
+    detail: text.notReachable(host, cause, networkHintText(t.commands.network, cause, false)),
+    isRequired,
+  };
 }
 
 /**
@@ -179,10 +205,10 @@ export async function runDoctor(context: CommandContext): Promise<ExitCode> {
   const { deps, io, style } = context;
   const t = cliText(context.ruleLocale);
   const text = t.commands.doctor;
-  const [gitVersion, gitRoot, isGitHubReachable, discovery] = await Promise.all([
+  const [gitVersion, gitRoot, probes, discovery] = await Promise.all([
     deps.readGitVersion(),
     deps.findGitRoot(io.cwd).catch(() => null),
-    deps.checkGitHubReachable(),
+    deps.probeHosts(),
     deps.discoverListeningPorts(),
   ]);
   const app = resolveGitHubAppClientId(io.env);
@@ -206,12 +232,9 @@ export async function runDoctor(context: CommandContext): Promise<ExitCode> {
       detail: gitRoot === null ? text.notInRepository : text.inRepository,
       isRequired: false,
     },
-    {
-      label: text.labels.reachability,
-      isOk: isGitHubReachable,
-      detail: isGitHubReachable ? text.reachable : text.notReachable,
-      isRequired: true,
-    },
+    describeHost(probes, "github.com", text.labels.webReachability, true, t),
+    describeHost(probes, "api.github.com", text.labels.reachability, true, t),
+    describeHost(probes, OSV_EXPORT_HOST, text.labels.osvReachability, false, t),
     describeGitHubApp(app, t),
     { label: text.labels.signIn, ...signIn, isRequired: false },
     ...(await describeAdvisoryData(context, t)),

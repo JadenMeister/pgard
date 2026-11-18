@@ -18,6 +18,7 @@ import {
   buildAppInstallUrl,
   isGitHubAuthError,
   isOpenableGitHubUrl,
+  networkHintEnglish,
   type GitHubClient,
   type GitHubRepository,
   type GitHubUser,
@@ -154,6 +155,11 @@ export function describeIdentityError(error: unknown): CheckResult {
       case "not_signed_in":
         // Fixed text from `@pgard/github-auth`: the reason and the fix (`pgard login`).
         return unverifiable(error.message);
+      case "network_error":
+        // The cause code (if any) is already in the message; the hint is fixed text.
+        return unverifiable(
+          `GitHub identity could not be verified: ${error.message} ${networkHintFor(error)}`,
+        );
       default:
         return unverifiable(`GitHub identity could not be verified: ${error.message}`);
     }
@@ -161,9 +167,15 @@ export function describeIdentityError(error: unknown): CheckResult {
   return unverifiable("GitHub identity could not be verified due to an unexpected error.");
 }
 
+/** The fixed remedy for a request that got no answer: proxy, TLS inspection, offline, `--code-only`. */
+function networkHintFor(error: { causeCode: string | null }): string {
+  return networkHintEnglish(error.causeCode, { codeOnly: true });
+}
+
 export function describeApiError(error: unknown, action: string): CheckResult {
   if (isGitHubAuthError(error)) {
-    return unverifiable(`Could not ${action}: ${error.message}`);
+    const hint = error.code === "network_error" ? ` ${networkHintFor(error)}` : "";
+    return unverifiable(`Could not ${action}: ${error.message}${hint}`);
   }
   return unverifiable(`Could not ${action} due to an unexpected error.`);
 }
@@ -672,7 +684,9 @@ function describeMembershipError(error: unknown, user: GitHubUser, org: string):
         );
       default:
         return unverifiable(
-          `Could not read ${user.login}'s membership in ${org}: ${error.message}`,
+          `Could not read ${user.login}'s membership in ${org}: ${error.message}${
+            error.code === "network_error" ? ` ${networkHintFor(error)}` : ""
+          }`,
         );
     }
   }

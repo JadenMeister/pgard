@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { createWriteStream } from "node:fs";
 import type { Ecosystem } from "../types.js";
+import { networkCauseCode } from "./network-cause.js";
 
 /**
  * The official OSV export bucket (https://google.github.io/osv.dev/data/): per ecosystem,
@@ -24,10 +25,20 @@ const MAX_REDIRECTS = 3;
 
 export class DownloadError extends Error {
   readonly code: "host" | "scheme" | "redirect" | "http" | "size" | "timeout" | "network" | "disk";
-  constructor(code: DownloadError["code"], message: string) {
+  /** `network` only: the request itself got no answer (as opposed to a short or empty body). */
+  readonly isUnreachable: boolean;
+  /** For an unreachable host: the whitelisted reason (`ENOTFOUND`, ...), if known. */
+  readonly causeCode: string | null;
+  constructor(
+    code: DownloadError["code"],
+    message: string,
+    options: { isUnreachable?: boolean; causeCode?: string | null } = {},
+  ) {
     super(message);
     this.name = "DownloadError";
     this.code = code;
+    this.isUnreachable = options.isUnreachable === true;
+    this.causeCode = options.causeCode ?? null;
   }
 }
 
@@ -179,6 +190,11 @@ export async function downloadToFile(
     if (error instanceof DownloadError) throw error;
     if (timeout.aborted) throw new DownloadError("timeout", "The download timed out.");
     if (options.signal?.aborted) throw error;
-    throw new DownloadError("network", "The download failed.");
+    const causeCode = networkCauseCode(error);
+    throw new DownloadError(
+      "network",
+      `The download failed${causeCode === null ? "" : ` (${causeCode})`}.`,
+      { isUnreachable: true, causeCode },
+    );
   }
 }

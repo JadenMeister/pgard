@@ -8,7 +8,11 @@
  * messages, the report writer's errors, the App override warnings of scan-core).
  */
 
-import { OS_KEYCHAIN_NOT_LOADED_MESSAGE, OS_KEYCHAIN_UNUSABLE_MESSAGE } from "@pgard/scan-core";
+import {
+  OS_KEYCHAIN_NOT_LOADED_MESSAGE,
+  OS_KEYCHAIN_UNUSABLE_MESSAGE,
+  networkHintKind,
+} from "@pgard/scan-core";
 
 /**
  * The keychain reasons that `@pgard/github-auth` writes (fixed English text, never native error
@@ -21,7 +25,26 @@ export function localizeKeychainReason(reason: string, text: CommandText["signIn
     .replace("the OS keychain could not be used", text.keychainUnusableShort);
 }
 
+/**
+ * The fixed remedy for a request that got no answer, chosen by the whitelisted cause code (`null`:
+ * unknown cause). `codeOnly` adds the pointer to `pgard scan code --code-only` (sign-in and
+ * authorization failures). Never contains the error's own text.
+ */
+export function networkHintText(
+  text: CommandText["network"],
+  causeCode: string | null,
+  codeOnly: boolean,
+): string {
+  const fix = networkHintKind(causeCode) === "tls" ? text.hintTls : text.hintNetwork;
+  return codeOnly ? `${fix} ${text.codeOnly}` : fix;
+}
+
 export interface CommandText {
+  network: {
+    hintNetwork: string;
+    hintTls: string;
+    codeOnly: string;
+  };
   signIn: {
     revokeHint: (url: string) => string;
     keychainUnavailableOnLogin: (reason: string) => string;
@@ -170,6 +193,8 @@ export interface CommandText {
       git: string;
       directory: string;
       reachability: string;
+      webReachability: string;
+      osvReachability: string;
       app: string;
       signIn: string;
       advisories: string;
@@ -180,8 +205,9 @@ export interface CommandText {
     gitNotFound: string;
     inRepository: string;
     notInRepository: string;
-    reachable: string;
-    notReachable: string;
+    reachable: (host: string) => string;
+    /** `cause` is a whitelisted code such as ENOTFOUND, or `null` when it is unknown. */
+    notReachable: (host: string, cause: string | null, hint: string) => string;
     builtInApp: (clientId: string) => string;
     envApp: (clientId: string, envName: string) => string;
     invalidApp: (message: string) => string;
@@ -250,11 +276,18 @@ export const UNSUPPORTED_AREAS_EN = [
 ] as const;
 
 export const COMMAND_TEXT_EN: CommandText = {
+  network: {
+    hintNetwork:
+      "Check your internet connection. Behind a proxy, set HTTPS_PROXY and NODE_USE_ENV_PROXY=1 (Node 24 and newer).",
+    hintTls:
+      "A proxy that inspects TLS may be in the way: set NODE_EXTRA_CA_CERTS=<path to your company CA file> and try again.",
+    codeOnly: "To scan without GitHub, use `pgard scan code --code-only`.",
+  },
   signIn: {
     revokeHint: (url) =>
       `PGARD cannot revoke the token at GitHub (that needs the App's client secret, which PGARD does not have). It stays valid until it expires; to revoke it now, open ${url} and revoke the PGARD app.`,
     keychainUnavailableOnLogin: (reason) =>
-      `No OS keychain is available: ${reason}. Nothing was saved; scans and the dashboard ask for a device code on each run.`,
+      `The OS keychain cannot be used: ${reason}. Nothing was saved. On Linux, install and start a Secret Service (gnome-keyring, or KeePassXC with libsecret) inside a D-Bus session, then run \`pgard login\` again. Without it, scans and the dashboard still work but ask for a device code on each run, and \`pgard scan code --code-only\` scans without signing in.`,
     failed: (reason) => `GitHub sign-in failed: ${reason}`,
     unexpectedError: "unexpected error",
     signedInNotSaved: (login, error) =>
@@ -287,7 +320,8 @@ export const COMMAND_TEXT_EN: CommandText = {
       `Saved the GitHub sign-in for ${login} in the OS keychain; later runs reuse it. \`pgard logout\` removes it.`,
     removedNotice: (reason) =>
       `The saved GitHub sign-in ${reason} and was removed from the OS keychain. Sign in again below.`,
-    memoryOnly: (reason) => `The GitHub sign-in is kept in memory for this run only: ${reason}.`,
+    memoryOnly: (reason) =>
+      `The GitHub sign-in is kept in memory for this run only: ${reason}. The next run asks for a device code again. To avoid that, install and start a Secret Service (Linux: gnome-keyring, or KeePassXC with libsecret), or scan with \`pgard scan code --code-only\`.`,
     appOverride: (clientId, envName) => `Using GitHub App ${clientId} from ${envName} (override).`,
     keychainUnusable:
       "the OS keychain could not be used (it may be locked, or no keychain service is running)",
@@ -448,7 +482,9 @@ overwritten. Saving inside the Git repository risks committing the report.`,
       node: "Node.js",
       git: "Git",
       directory: "Current directory",
-      reachability: "GitHub reachability",
+      reachability: "GitHub API reachability",
+      webReachability: "GitHub sign-in reachability",
+      osvReachability: "Advisory host reachability",
       app: "GitHub App",
       signIn: "Saved GitHub sign-in",
       advisories: "Advisory data (OSV)",
@@ -459,8 +495,9 @@ overwritten. Saving inside the Git repository risks committing the report.`,
     gitNotFound: "not found",
     inRepository: "inside a Git repository",
     notInRepository: "not inside a Git repository (scans need one)",
-    reachable: "api.github.com reachable",
-    notReachable: "api.github.com not reachable",
+    reachable: (host) => `${host} reachable`,
+    notReachable: (host, cause, hint) =>
+      `${host} not reachable${cause === null ? "" : ` (${cause})`}. ${hint}`,
     builtInApp: (clientId) => `built-in PGARD App (${clientId})`,
     envApp: (clientId, envName) => `${clientId} from ${envName} (override)`,
     invalidApp: (message) =>
@@ -528,11 +565,18 @@ overwritten. Saving inside the Git repository risks committing the report.`,
 };
 
 export const COMMAND_TEXT_KO: CommandText = {
+  network: {
+    hintNetwork:
+      "인터넷 연결을 확인하세요. 프록시를 쓰는 환경이면 HTTPS_PROXY와 NODE_USE_ENV_PROXY=1을 설정하세요(Node 24 이상).",
+    hintTls:
+      "TLS를 검사하는 프록시가 끼어 있을 수 있습니다. NODE_EXTRA_CA_CERTS=<회사 CA 파일 경로>를 설정한 뒤 다시 시도하세요.",
+    codeOnly: "GitHub 없이 검사하려면 `pgard scan code --code-only`를 사용하세요.",
+  },
   signIn: {
     revokeHint: (url) =>
       `PGARD는 GitHub에서 토큰을 직접 폐기할 수 없습니다(App의 client secret이 필요한데 PGARD에는 없습니다). 토큰은 만료될 때까지 유효합니다. 지금 폐기하려면 ${url} 에서 PGARD 앱의 승인을 취소(Revoke)하세요.`,
     keychainUnavailableOnLogin: (reason) =>
-      `사용할 수 있는 OS 키체인이 없습니다: ${reason}. 아무것도 저장하지 않았습니다. 검사와 대시보드는 실행할 때마다 기기 코드를 요청합니다.`,
+      `OS 키체인을 사용할 수 없습니다: ${reason}. 아무것도 저장하지 않았습니다. Linux에서는 D-Bus 세션 안에서 Secret Service(gnome-keyring, 또는 libsecret을 쓰는 KeePassXC)를 설치하고 실행한 뒤 \`pgard login\`을 다시 실행하세요. 그렇지 않아도 검사와 대시보드는 쓸 수 있지만 실행할 때마다 기기 코드를 요청하며, 로그인 없이 검사하려면 \`pgard scan code --code-only\`를 사용하세요.`,
     failed: (reason) => `GitHub 로그인에 실패했습니다: ${reason}`,
     unexpectedError: "예기치 않은 오류",
     signedInNotSaved: (login, error) =>
@@ -565,7 +609,8 @@ export const COMMAND_TEXT_KO: CommandText = {
       `${login} 계정의 GitHub 로그인을 OS 키체인에 저장했습니다. 이후 실행에서 다시 사용합니다. \`pgard logout\`으로 삭제할 수 있습니다.`,
     removedNotice: (reason) =>
       `저장된 GitHub 로그인이 사용할 수 없는 상태입니다(${reason}). OS 키체인에서 삭제했으니 아래에서 다시 로그인하세요.`,
-    memoryOnly: (reason) => `GitHub 로그인은 이번 실행 동안만 메모리에 보관됩니다: ${reason}.`,
+    memoryOnly: (reason) =>
+      `GitHub 로그인은 이번 실행 동안만 메모리에 보관됩니다: ${reason}. 다음 실행에서는 기기 코드를 다시 요청합니다. 이를 피하려면 Secret Service(Linux: gnome-keyring, 또는 libsecret을 쓰는 KeePassXC)를 설치하고 실행하거나, \`pgard scan code --code-only\`로 검사하세요.`,
     appOverride: (clientId, envName) =>
       `${envName}에서 재정의한 GitHub App을 사용합니다: ${clientId}`,
     keychainUnusable:
@@ -729,7 +774,9 @@ Git 저장소 안에 저장하면 보고서가 커밋될 위험이 있습니다.
       node: "Node.js",
       git: "Git",
       directory: "현재 디렉터리",
-      reachability: "GitHub 연결",
+      reachability: "GitHub API 연결",
+      webReachability: "GitHub 로그인 연결",
+      osvReachability: "취약점 데이터 서버 연결",
       app: "GitHub App",
       signIn: "저장된 GitHub 로그인",
       advisories: "취약점 데이터 (OSV)",
@@ -741,8 +788,9 @@ Git 저장소 안에 저장하면 보고서가 커밋될 위험이 있습니다.
     gitNotFound: "찾을 수 없음",
     inRepository: "Git 저장소 안",
     notInRepository: "Git 저장소 안이 아님 (검사에는 저장소가 필요합니다)",
-    reachable: "api.github.com에 연결됨",
-    notReachable: "api.github.com에 연결할 수 없음",
+    reachable: (host) => `${host}에 연결됨`,
+    notReachable: (host, cause, hint) =>
+      `${host}에 연결할 수 없음${cause === null ? "" : ` (${cause})`}. ${hint}`,
     builtInApp: (clientId) => `내장 PGARD App (${clientId})`,
     envApp: (clientId, envName) => `${envName}의 ${clientId} (재정의)`,
     invalidApp: (message) =>

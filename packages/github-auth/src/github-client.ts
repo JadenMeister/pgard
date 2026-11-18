@@ -1,4 +1,5 @@
 import { GitHubAuthError } from "./errors.js";
+import { causeSuffix, networkCauseCode } from "./network-cause.js";
 import {
   asInteger,
   asRecord,
@@ -238,7 +239,13 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
           `The GitHub API did not answer within ${Math.ceil(error.timeoutMs / 1000)} s.`,
         );
       }
-      throw new GitHubAuthError("network_error", "Could not reach the GitHub API.");
+      const causeCode = networkCauseCode(error);
+      throw new GitHubAuthError(
+        "network_error",
+        `Could not reach the GitHub API${causeSuffix(causeCode)}.`,
+        null,
+        causeCode,
+      );
     }
   }
 

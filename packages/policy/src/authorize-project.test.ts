@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { AuthorizationCheckId } from "@pgard/findings";
 import {
+  networkHintEnglish,
   GitHubAuthError,
   createDeviceFlowSessionProvider,
   resolveGitHubAppClientId,
@@ -512,7 +513,8 @@ describe("authorizeProject: repository and identity", () => {
     const identity = outcome.summary.checks.find((check) => check.id === "github_identity");
     expect(identity?.status).toBe("unverifiable");
     expect(identity?.reason).toBe(
-      "GitHub identity could not be verified: Could not reach GitHub for sign-in.",
+      "GitHub identity could not be verified: Could not reach GitHub for sign-in." +
+        " Check your internet connection. Behind a proxy, set HTTPS_PROXY and NODE_USE_ENV_PROXY=1 (Node 24 and newer). To scan without GitHub, use `pgard scan code --code-only`.",
     );
     // A configured client id alone never lets the later checks pass.
     expect(statusOf(outcome, "owner_approval")).not.toBe("passed");
@@ -758,7 +760,7 @@ describe("authorizeProject: organization repositories", () => {
     [
       "network error",
       new GitHubAuthError("network_error", "Could not reach the GitHub API."),
-      /^Could not read me\'s membership in acme: Could not reach the GitHub API\.$/,
+      /^Could not read me\'s membership in acme: Could not reach the GitHub API\. Check your internet connection\./,
     ],
     [
       "malformed body",
@@ -1256,7 +1258,9 @@ describe("authorizeProject: verified owner must link the local code to the repos
     expect(contributionOf(outcome)).toEqual({
       id: "contribution",
       status: "unverifiable",
-      reason: `Could not check that the local code belongs to me/app: ${error.message}`,
+      reason: `Could not check that the local code belongs to me/app: ${error.message}${
+        error.code === "network_error" ? ` ${networkHintEnglish(null, { codeOnly: true })}` : ""
+      }`,
     });
   });
 });

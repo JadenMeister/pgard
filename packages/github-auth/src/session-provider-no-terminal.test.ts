@@ -4,7 +4,11 @@ import {
   createUnavailableCredentialStore,
   type CredentialStore,
 } from "./credential-store.js";
-import { isGitHubAuthError, NOT_SIGNED_IN_NO_TERMINAL_MESSAGE } from "./errors.js";
+import {
+  isGitHubAuthError,
+  NOT_SIGNED_IN_NO_KEYCHAIN_MESSAGE,
+  NOT_SIGNED_IN_NO_TERMINAL_MESSAGE,
+} from "./errors.js";
 import type { FetchLike } from "./fetch.js";
 import { createDeviceFlowSessionProvider } from "./session-provider.js";
 import { signInKey } from "./stored-sign-in.js";
@@ -40,15 +44,19 @@ function provider(store: CredentialStore | null, fetch: FetchLike, canSignInInte
 }
 
 describe("session provider without a terminal", () => {
-  const stores: Array<[string, () => CredentialStore | null]> = [
-    ["an empty keychain", () => createInMemoryCredentialStore()],
-    ["an unavailable keychain", () => createUnavailableCredentialStore("locked")],
-    ["no keychain at all", () => null],
+  const stores: Array<[string, () => CredentialStore | null, string]> = [
+    ["an empty keychain", () => createInMemoryCredentialStore(), NOT_SIGNED_IN_NO_TERMINAL_MESSAGE],
+    [
+      "an unavailable keychain",
+      () => createUnavailableCredentialStore("locked"),
+      NOT_SIGNED_IN_NO_KEYCHAIN_MESSAGE,
+    ],
+    ["no keychain at all", () => null, NOT_SIGNED_IN_NO_TERMINAL_MESSAGE],
   ];
 
   it.each(stores)(
     "fails with not_signed_in and never requests a device code (%s)",
-    async (_name, makeStore) => {
+    async (_name, makeStore, expectedMessage) => {
       const github = recordingFetch();
       const { instance, userCodes } = provider(makeStore(), github.fetch);
       const failure = await instance().then(
@@ -58,9 +66,10 @@ describe("session provider without a terminal", () => {
       expect(isGitHubAuthError(failure)).toBe(true);
       expect(failure).toMatchObject({
         code: "not_signed_in",
-        message: NOT_SIGNED_IN_NO_TERMINAL_MESSAGE,
+        message: expectedMessage,
       });
       expect(NOT_SIGNED_IN_NO_TERMINAL_MESSAGE).toContain("Run `pgard login` in a terminal first");
+      expect(NOT_SIGNED_IN_NO_KEYCHAIN_MESSAGE).toContain("--code-only");
       expect(github.urls).toEqual([]);
       expect(userCodes).toEqual([]);
     },

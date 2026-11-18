@@ -1,4 +1,5 @@
 import { GitHubAuthError } from "./errors.js";
+import { causeSuffix, networkCauseCode } from "./network-cause.js";
 import {
   asInteger,
   asRecord,
@@ -109,7 +110,13 @@ async function postFormOnce(
       throw new GitHubAuthError("cancelled", "GitHub sign-in was cancelled.");
     }
     if (error instanceof RequestTimeoutError) throw error;
-    throw new GitHubAuthError("network_error", "Could not reach GitHub for sign-in.");
+    const causeCode = networkCauseCode(error);
+    throw new GitHubAuthError(
+      "network_error",
+      `Could not reach GitHub for sign-in${causeSuffix(causeCode)}.`,
+      null,
+      causeCode,
+    );
   }
   let body: Record<string, unknown> | null = null;
   try {

@@ -11,7 +11,12 @@ import {
   type UserTokenSet,
 } from "./device-flow.js";
 import { INVALID_CLIENT_ID_OVERRIDE_MESSAGE } from "./env.js";
-import { GitHubAuthError, NOT_SIGNED_IN_NO_TERMINAL_MESSAGE, isGitHubAuthError } from "./errors.js";
+import {
+  GitHubAuthError,
+  NOT_SIGNED_IN_NO_KEYCHAIN_MESSAGE,
+  NOT_SIGNED_IN_NO_TERMINAL_MESSAGE,
+  isGitHubAuthError,
+} from "./errors.js";
 import type { FetchLike } from "./fetch.js";
 import type { GitHubClient, GitHubUser } from "./github-client.js";
 import {
@@ -224,6 +229,8 @@ export function createDeviceFlowSessionProvider(
   const notify = (notice: SignInNotice): void => options.onNotice?.(notice);
   let store: CredentialStore | null = options.credentialStore ?? null;
   let pending: Promise<GitHubSession> | null = null;
+  /** The keychain was given up on during this run (it could not be used). */
+  let keychainFellBack = false;
   /** Sign-ins (`pending` values) that have finished, successfully or not. */
   const settled = new WeakSet<Promise<GitHubSession>>();
   /** The `existing()` call in flight, so concurrent background re-checks refresh only once. */
@@ -279,6 +286,7 @@ export function createDeviceFlowSessionProvider(
   const fallBackToMemory = (reason: string): void => {
     if (store === null) return;
     store = null;
+    keychainFellBack = true;
     notify({ kind: "memory_only", reason });
   };
 
@@ -461,7 +469,10 @@ export function createDeviceFlowSessionProvider(
     }
 
     if (options.canSignInInteractively === false) {
-      throw new GitHubAuthError("not_signed_in", NOT_SIGNED_IN_NO_TERMINAL_MESSAGE);
+      throw new GitHubAuthError(
+        "not_signed_in",
+        keychainFellBack ? NOT_SIGNED_IN_NO_KEYCHAIN_MESSAGE : NOT_SIGNED_IN_NO_TERMINAL_MESSAGE,
+      );
     }
     const tokens = await requestDeviceFlowTokens(deviceFlowOptions(options, clientId));
     const session = createSessionFromToken(tokens.accessToken, tokens.expiresAt, options);

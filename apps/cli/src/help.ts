@@ -541,9 +541,10 @@ App PGARD signs in with (the built-in PGARD App, or PGARD_GITHUB_APP_CLIENT_ID
 as an override), whether a GitHub sign-in is saved in the OS keychain (and for
 which account; the token is never shown), and the downloaded advisory data
 (present or missing, age, stale after 7 days, data version, store path; read from
-local files). Its only network request is an unauthenticated HEAD to
-api.github.com. This is a diagnosis only; it does not authorize scans. Works
-outside a project.
+local files). Its only network requests are an unauthenticated HEAD to
+github.com, api.github.com and osv-vulnerabilities.storage.googleapis.com, with
+the cause and a hint for each one it cannot reach. This is a diagnosis only; it
+does not authorize scans. Works outside a project.
 
 Exit codes: 0 when the diagnosis completed (problems are listed as [fail] or
 [warn]), 5 on an internal error.`,

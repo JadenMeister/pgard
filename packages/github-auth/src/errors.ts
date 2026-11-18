@@ -1,3 +1,5 @@
+import type { NetworkCauseCode } from "./network-cause.js";
+
 /**
  * Error codes are stable so callers can map them without parsing messages.
  * Messages never contain tokens, device codes or response bodies.
@@ -34,9 +36,17 @@ export class GitHubAuthError extends Error {
   readonly code: GitHubAuthErrorCode;
   /** HTTP status when the error came from a GitHub response. */
   readonly status: number | null;
+  /** For `network_error`: the whitelisted reason the request failed (`ENOTFOUND`, ...), if known. */
+  readonly causeCode: NetworkCauseCode | null;
 
-  constructor(code: GitHubAuthErrorCode, message: string, status: number | null = null) {
+  constructor(
+    code: GitHubAuthErrorCode,
+    message: string,
+    status: number | null = null,
+    causeCode: NetworkCauseCode | null = null,
+  ) {
     super(message);
+    this.causeCode = causeCode;
     this.name = "GitHubAuthError";
     this.code = code;
     this.status = status;
@@ -50,3 +60,10 @@ export function isGitHubAuthError(error: unknown): error is GitHubAuthError {
 /** The reason and the fix in one fixed sentence; the same text is in JSON/SARIF and the README. */
 export const NOT_SIGNED_IN_NO_TERMINAL_MESSAGE =
   "Not signed in to GitHub, and there is no terminal to sign in with. Run `pgard login` in a terminal first.";
+
+/**
+ * Same, when no OS keychain is available either: `pgard login` cannot help there, so the fix is a
+ * scan that needs no sign-in.
+ */
+export const NOT_SIGNED_IN_NO_KEYCHAIN_MESSAGE =
+  "Not signed in to GitHub, there is no terminal to sign in with, and no OS keychain is available to keep a sign-in. Use `pgard scan code --code-only` for a scan that needs no sign-in.";
