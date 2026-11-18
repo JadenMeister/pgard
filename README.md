@@ -589,7 +589,7 @@ When a request gets no answer, the sign-in, the authorization check and `pgard a
 
 `pgard login` saves the sign-in in the OS keychain. On Linux that is a Secret Service reached over D-Bus, which a server, a container or a plain WSL install usually does not have. Then `pgard login` exits with code 4 and saves nothing. Scans still work: they keep the sign-in in memory and ask for a device code on each run (this needs a terminal).
 
-- To keep the sign-in, install and start a Secret Service in a D-Bus session: gnome-keyring, or KeePassXC with its Secret Service integration (libsecret). For example `dbus-run-session -- sh -c 'gnome-keyring-daemon --unlock --components=secrets <<< "" && pgard login'`, or your desktop session's own keyring.
+- To keep the sign-in, install and start a Secret Service in a D-Bus session: gnome-keyring, or KeePassXC with its Secret Service integration (libsecret). For example `dbus-run-session -- sh -c 'printf "" | gnome-keyring-daemon --unlock --components=secrets && pgard login'`, or your desktop session's own keyring.
 - To scan without any sign-in, use `pgard scan code --code-only` (current files only, nothing saved).
 - In CI, a pipe or a Docker build there is no terminal, so no device code can be answered. With no usable saved sign-in and no keychain, a scan is blocked with exit code 3 and the reason says to use `pgard scan code --code-only`.
 - WSL: PGARD detects it (`/proc/version` contains "microsoft") and tries `wslview` (package `wslu`) to open the sign-in page in your Windows browser. Without `wslview`, or when the opener exits with an error, PGARD prints "Could not open a browser; open the link above yourself." The link and the code are always printed, so open the link in any browser.

@@ -25,21 +25,39 @@ export const NETWORK_CAUSE_CODES: readonly string[] = [
 
 const MAX_CAUSE_DEPTH = 5;
 
-export function networkCauseCode(error: unknown): string | null {
-  let current: unknown = error;
-  for (let depth = 0; depth < MAX_CAUSE_DEPTH; depth += 1) {
+const MAX_NODES = 16;
+
+function search(value: unknown, depthLeft: number, budget: { nodes: number }): string | null {
+  let current: unknown = value;
+  for (let depth = depthLeft; depth > 0; depth -= 1) {
     if (typeof current !== "object" || current === null) return null;
+    budget.nodes -= 1;
+    if (budget.nodes < 0) return null;
     const record = current as { code?: unknown; errors?: unknown; cause?: unknown };
-    if (typeof record.code === "string" && NETWORK_CAUSE_CODES.includes(record.code)) {
-      return record.code;
-    }
+    const own =
+      typeof record.code === "string" && NETWORK_CAUSE_CODES.includes(record.code)
+        ? record.code
+        : null;
+    if (own !== null) return own;
+    // `AggregateError` (several addresses tried) holds the individual failures.
     if (Array.isArray(record.errors)) {
       for (const inner of record.errors.slice(0, 4)) {
-        const found = networkCauseCode(inner);
+        const found = search(inner, depth - 1, budget);
         if (found !== null) return found;
       }
     }
     current = record.cause;
   }
   return null;
+}
+
+/** Same contract as the copy in `@pgard/github-auth`: bounded, never throws. */
+export function networkCauseCode(error: unknown): string | null {
+  const budget = { nodes: MAX_NODES };
+  try {
+    return search(error, MAX_CAUSE_DEPTH, budget);
+  } catch {
+    // A hostile error (throwing getter, Proxy trap) must never break the caller.
+    return null;
+  }
 }

@@ -36,6 +36,38 @@ describe("networkCauseCode", () => {
     );
   });
 
+  it("returns null for hostile errors instead of throwing or overflowing", () => {
+    const selfContaining = new AggregateError([], "loop");
+    selfContaining.errors.push(selfContaining);
+    expect(networkCauseCode(selfContaining)).toBeNull();
+    const throwingCode = {
+      get code(): string {
+        throw new Error("boom");
+      },
+    };
+    expect(networkCauseCode(throwingCode)).toBeNull();
+    const throwingCause = {
+      get cause(): unknown {
+        throw new Error("boom");
+      },
+    };
+    expect(networkCauseCode(throwingCause)).toBeNull();
+    const trapped = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error("trap");
+        },
+      },
+    );
+    expect(networkCauseCode(trapped)).toBeNull();
+    expect(networkCauseCode({ errors: [trapped, { code: "ENOTFOUND" }] })).toBeNull();
+    // A wide, deep tree is cut off by the node budget.
+    let wide: unknown = { code: "ENOTFOUND" };
+    for (let i = 0; i < 40; i += 1) wide = { errors: [{}, {}, {}, wide] };
+    expect(networkCauseCode(wide)).toBeNull();
+  });
+
   it("ignores codes outside the whitelist, text and non-errors", () => {
     expect(networkCauseCode(fetchFailed("ESOMETHINGELSE"))).toBeNull();
     expect(networkCauseCode(new TypeError("fetch failed ENOTFOUND"))).toBeNull();

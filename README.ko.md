@@ -582,7 +582,7 @@ export NODE_EXTRA_CA_CERTS=/path/to/company-ca.pem
 
 `pgard login`은 로그인 정보를 OS 키체인에 저장합니다. Linux에서는 D-Bus로 접근하는 Secret Service인데, 서버, 컨테이너, 기본 WSL 설치에는 보통 없습니다. 이 경우 `pgard login`은 종료 코드 4로 끝나며 아무것도 저장하지 않습니다. 검사는 그대로 쓸 수 있습니다. 로그인 정보를 메모리에만 두고 실행할 때마다 기기 코드를 요청합니다(터미널이 필요합니다).
 
-- 로그인을 저장하려면 D-Bus 세션 안에서 Secret Service를 설치하고 실행하세요. gnome-keyring, 또는 Secret Service 연동(libsecret)을 켠 KeePassXC를 쓰면 됩니다. 예: `dbus-run-session -- sh -c 'gnome-keyring-daemon --unlock --components=secrets <<< "" && pgard login'`, 또는 데스크톱 세션의 키링.
+- 로그인을 저장하려면 D-Bus 세션 안에서 Secret Service를 설치하고 실행하세요. gnome-keyring, 또는 Secret Service 연동(libsecret)을 켠 KeePassXC를 쓰면 됩니다. 예: `dbus-run-session -- sh -c 'printf "" | gnome-keyring-daemon --unlock --components=secrets && pgard login'`, 또는 데스크톱 세션의 키링.
 - 로그인 없이 검사하려면 `pgard scan code --code-only`를 사용하세요(현재 파일만 검사하며 저장하지 않음).
 - CI, 파이프, Docker 빌드에는 터미널이 없어 기기 코드에 답할 수 없습니다. 사용할 수 있는 저장된 로그인도 키체인도 없으면 검사는 종료 코드 3으로 차단되고, 이유에 `pgard scan code --code-only`를 쓰라고 안내합니다.
 - WSL: PGARD가 WSL을 감지하고(`/proc/version`에 "microsoft" 포함) `wslview`(`wslu` 패키지)로 Windows 브라우저에서 로그인 페이지를 열어 봅니다. `wslview`가 없거나 열기 명령이 오류로 끝나면 "Could not open a browser; open the link above yourself."를 출력합니다. 링크와 코드는 항상 출력되니 아무 브라우저에서나 링크를 여세요.

@@ -133,7 +133,7 @@ describe("pgard login", () => {
     expect(await runLogin(createTestContext(captured, deps))).toBe(4);
     expect(signIn).not.toHaveBeenCalled();
     expect(captured.stderr()).toContain(
-      "No OS keychain is available: no keychain service is running. Nothing was saved",
+      "The OS keychain cannot be used: no keychain service is running. Nothing was saved",
     );
   });
 

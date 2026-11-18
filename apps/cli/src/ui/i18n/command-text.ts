@@ -287,7 +287,7 @@ export const COMMAND_TEXT_EN: CommandText = {
     revokeHint: (url) =>
       `PGARD cannot revoke the token at GitHub (that needs the App's client secret, which PGARD does not have). It stays valid until it expires; to revoke it now, open ${url} and revoke the PGARD app.`,
     keychainUnavailableOnLogin: (reason) =>
-      `No OS keychain is available: ${reason}. Nothing was saved. On Linux, install and start a Secret Service (gnome-keyring, or KeePassXC with libsecret) inside a D-Bus session, then run \`pgard login\` again. Without it, scans and the dashboard still work but ask for a device code on each run, and \`pgard scan code --code-only\` scans without signing in.`,
+      `The OS keychain cannot be used: ${reason}. Nothing was saved. On Linux, install and start a Secret Service (gnome-keyring, or KeePassXC with libsecret) inside a D-Bus session, then run \`pgard login\` again. Without it, scans and the dashboard still work but ask for a device code on each run, and \`pgard scan code --code-only\` scans without signing in.`,
     failed: (reason) => `GitHub sign-in failed: ${reason}`,
     unexpectedError: "unexpected error",
     signedInNotSaved: (login, error) =>
@@ -576,7 +576,7 @@ export const COMMAND_TEXT_KO: CommandText = {
     revokeHint: (url) =>
       `PGARD는 GitHub에서 토큰을 직접 폐기할 수 없습니다(App의 client secret이 필요한데 PGARD에는 없습니다). 토큰은 만료될 때까지 유효합니다. 지금 폐기하려면 ${url} 에서 PGARD 앱의 승인을 취소(Revoke)하세요.`,
     keychainUnavailableOnLogin: (reason) =>
-      `사용할 수 있는 OS 키체인이 없습니다: ${reason}. 아무것도 저장하지 않았습니다. Linux에서는 D-Bus 세션 안에서 Secret Service(gnome-keyring, 또는 libsecret을 쓰는 KeePassXC)를 설치하고 실행한 뒤 \`pgard login\`을 다시 실행하세요. 그렇지 않아도 검사와 대시보드는 쓸 수 있지만 실행할 때마다 기기 코드를 요청하며, 로그인 없이 검사하려면 \`pgard scan code --code-only\`를 사용하세요.`,
+      `OS 키체인을 사용할 수 없습니다: ${reason}. 아무것도 저장하지 않았습니다. Linux에서는 D-Bus 세션 안에서 Secret Service(gnome-keyring, 또는 libsecret을 쓰는 KeePassXC)를 설치하고 실행한 뒤 \`pgard login\`을 다시 실행하세요. 그렇지 않아도 검사와 대시보드는 쓸 수 있지만 실행할 때마다 기기 코드를 요청하며, 로그인 없이 검사하려면 \`pgard scan code --code-only\`를 사용하세요.`,
     failed: (reason) => `GitHub 로그인에 실패했습니다: ${reason}`,
     unexpectedError: "예기치 않은 오류",
     signedInNotSaved: (login, error) =>
