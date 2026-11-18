@@ -83,6 +83,132 @@ export function importAliasesOf(source: string): Map<string, string> {
   return out;
 }
 
+/**
+ * The text with comments replaced by a space and the inside of string and character literals
+ * dropped, in one pass (so an assignment split by a comment or a newline reads as one, and one
+ * inside a string does not count). A `/*` that never closes ends the text.
+ */
+export function withoutCommentsAndStrings(
+  source: string,
+  language: "java" | "kotlin" = "java",
+): string {
+  const out: string[] = [];
+  let i = 0;
+  let from = 0;
+  const flush = (to: number): void => {
+    if (to > from) out.push(source.slice(from, to));
+  };
+  while (i < source.length) {
+    const char = source[i] as string;
+    const next = source[i + 1];
+    if (char === "/" && next === "/") {
+      flush(i);
+      const end = source.indexOf("\n", i);
+      i = end < 0 ? source.length : end;
+      from = i;
+      out.push(" ");
+    } else if (char === "/" && next === "*") {
+      flush(i);
+      const end = source.indexOf("*/", i + 2);
+      i = end < 0 ? source.length : end + 2;
+      from = i;
+      out.push(" ");
+    } else if (char === "'") {
+      // A character literal is a few characters; a quote with no partner nearby is plain text
+      // (Kotlin `"${'"'}"` leaves one), so it cannot hide the code that follows.
+      let end = i + 1;
+      const limit = Math.min(source.length, i + 9);
+      while (end < limit && source[end] !== "'" && source[end] !== "\n") {
+        end += source[end] === "\\" ? 2 : 1;
+      }
+      if (end < limit && source[end] === "'") {
+        flush(i);
+        i = end + 1;
+        from = i;
+        out.push('""');
+      } else {
+        i += 1;
+      }
+    } else if (char === '"') {
+      flush(i);
+      if (source.startsWith('"""', i)) {
+        // A Java text block honours `\` (`\"""` is a quote, not the end); a Kotlin raw string does not.
+        let end = source.indexOf('"""', i + 3);
+        while (language === "java" && end > 0) {
+          let slashes = 0;
+          while (source[end - 1 - slashes] === "\\") slashes += 1;
+          if (slashes % 2 === 0) break;
+          end = source.indexOf('"""', end + 1);
+        }
+        i = end < 0 ? source.length : end + 3;
+      } else {
+        i += 1;
+        while (i < source.length && source[i] !== char && source[i] !== "\n") {
+          i += source[i] === "\\" ? 2 : 1;
+        }
+        i += 1;
+      }
+      from = i;
+      out.push('""');
+    } else {
+      i += 1;
+    }
+  }
+  flush(Math.min(i, source.length));
+  return out.join("");
+}
+
+/**
+ * `name =`, `name +=`, `a.name =`, `this@K.name =`, Kotlin `name: Type =` and a declaration split
+ * across lines: every identifier that comes before an assignment operator (not `==`, `<=`, `>=`,
+ * `!=`, `=>`). A field's own declaration counts once. Found from each `=` looking backwards a
+ * bounded distance, so the cost is linear in the text.
+ */
+export function assignCountsOf(
+  source: string,
+  language: "java" | "kotlin" = "java",
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  const text = withoutCommentsAndStrings(source, language);
+  const isWord = (char: string | undefined): boolean => char !== undefined && /[\w$]/.test(char);
+  const count = (end: number): void => {
+    let at = end;
+    while (at >= 0 && /\s/.test(text[at] as string)) at -= 1;
+    let start = at;
+    while (start >= 0 && isWord(text[start]) && at - start < 128) start -= 1;
+    if (start === at || at - start >= 128) return;
+    const name = text.slice(start + 1, at + 1);
+    if (/^\d/.test(name)) return;
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  };
+  for (let eq = text.indexOf("="); eq >= 0; eq = text.indexOf("=", eq + 1)) {
+    const next = text[eq + 1];
+    const prev = text[eq - 1];
+    if (next === "=" || next === ">" || prev === "=" || prev === "!") continue;
+    let end = eq - 1;
+    if (prev === "<" || prev === ">") {
+      // `<<=`, `>>=`, `>>>=`; a lone `<=` or `>=` is a comparison.
+      if (text[eq - 2] !== prev) continue;
+      while (end >= 0 && text[end] === prev) end -= 1;
+    } else if (prev !== undefined && "+-*/%&|^".includes(prev)) {
+      end -= 1;
+    }
+    count(end);
+    // Kotlin `name: Type =`: the name before the last colon within a short distance.
+    let colon = -1;
+    for (let at = end, steps = 0; at >= 0 && steps < 80; at -= 1, steps += 1) {
+      const char = text[at] as string;
+      if (";(){}\n=".includes(char)) break;
+      if (char === ":" && text[at - 1] !== ":" && text[at + 1] !== ":") {
+        colon = at;
+        break;
+      }
+    }
+    if (colon > 0) count(colon - 1);
+  }
+  return counts;
+}
+
 /** The imports of a file, as written (`java.sql.Statement`, `org.springframework.jdbc.core.*`). */
 export function importsOf(source: string): string[] {
   const out: string[] = [];
@@ -113,6 +239,7 @@ export function analyzeJvmTree(
   const ast = toAst(root, source);
   const unit = language === "java" ? convertJava(ast) : convertKotlin(ast);
   unit.imports = importsOf(source);
+  unit.assignCounts = assignCountsOf(source, language);
   unit.aliases = importAliasesOf(source);
   const sql = analyzeSql(unit);
   const security = analyzeSpringSecurity(unit);

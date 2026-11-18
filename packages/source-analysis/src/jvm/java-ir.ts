@@ -372,6 +372,13 @@ export function convertJava(ast: AstResult): Unit {
     return out;
   }
 
+  /** The text of a short initializer, for conditions kept in a variable. */
+  const initTextOf = (node: AstNode | undefined): { initText?: string } => {
+    if (node === undefined) return {};
+    const value = text(node);
+    return value.length <= 300 ? { initText: value } : {};
+  };
+
   function localDeclaration(node: AstNode, depth: number): Stmt[] {
     const type = named(node, "type");
     const isFinal = /\bfinal\b/.test(modifierWords(ofType(node, "modifiers")));
@@ -387,6 +394,7 @@ export function convertJava(ast: AstResult): Unit {
         type: type === undefined ? null : text(type),
         init: value === undefined ? null : expr(value, depth + 1),
         isFinal,
+        ...initTextOf(value),
       });
     }
     return out;
@@ -748,6 +756,7 @@ export function convertJava(ast: AstResult): Unit {
               isConst: false,
               isMutable: !(isInterface || /\bfinal\b/.test(words)),
               overridable: false,
+              isPrivate: /\bprivate\b/.test(words),
               init: value === undefined ? null : expr(value, 1),
               line: declarator.line,
               annotations: annotations(ofType(member, "modifiers"), 1),

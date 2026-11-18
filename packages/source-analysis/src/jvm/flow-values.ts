@@ -193,6 +193,33 @@ export const baseType = (type: string | null): string => {
   name = name.slice(name.lastIndexOf(".") + 1);
   return name.replace(/^(?:final|vararg)\s+/, "").trim();
 };
+const ELEMENT_CONTAINERS =
+  /^(?:Mutable)?(?:List|Set|Collection|Iterable)$|^(?:Array|Linked|Hash|Tree|Linked[A-Z]\w*)?(?:List|Set|Deque|Queue)$|^(?:Sequence|Stream|Iterator|Array|ArrayDeque)$/;
+
+/**
+ * The element type of a typed collection or array (`List<LogEntry>` -> `LogEntry`, `Array<X>`,
+ * `X[]`), or null when it is not one type that is written down (a map, a wildcard, no type).
+ */
+export const elementTypeOf = (type: string | null): string | null => {
+  if (type === null || type.length > 200) return null;
+  const trimmed = type.replace(/\?$/, "").trim();
+  if (trimmed.endsWith("[]")) {
+    const inner = trimmed.slice(0, -2).trim();
+    return /^[\w.]+$/.test(inner) ? inner : null;
+  }
+  const open = trimmed.indexOf("<");
+  if (open <= 0 || !trimmed.endsWith(">")) return null;
+  if (!ELEMENT_CONTAINERS.test(baseType(trimmed.slice(0, open)))) return null;
+  const inner = trimmed
+    .slice(open + 1, -1)
+    .replace(/^(?:out\s+|\?\s+extends\s+)/, "")
+    .replace(/\?$/, "")
+    .trim();
+  const head = inner.slice(0, inner.indexOf("<") < 0 ? inner.length : inner.indexOf("<")).trim();
+  return /^[\w.]+$/.test(head) && /^[A-Z]/.test(head.slice(head.lastIndexOf(".") + 1))
+    ? head
+    : null;
+};
 export const isNumericType = (type: string | null): boolean => NUMERIC_TYPES.has(baseType(type));
 export const isTypeName = (name: string): boolean => /^[A-Z]/.test(name);
 export const isConstantCase = (name: string): boolean => /^[A-Z][A-Z0-9_]+$/.test(name);
@@ -214,6 +241,11 @@ export interface Binding {
   urlOf?: string[];
   /** A method parameter: request input in it is read directly, not "via variable". */
   isParam?: boolean;
+  /** A condition kept in a variable (`ok = p.normalize().startsWith(base)`) and what it reads. */
+  boolText?: string;
+  boolDeps?: Array<[Binding, number]>;
+  /** How many times the variable was assigned after its declaration. */
+  assigns?: number;
   /** Everything the variable has held, for a lambda that runs after later assignments. */
   ever: Leaf[];
 }

@@ -40,7 +40,15 @@ export type LambdaExpr = Extract<Expr, { k: "lambda" }>;
 
 export type Stmt = Base &
   (
-    | { s: "local"; name: string; type: string | null; init: Expr | null; isFinal: boolean }
+    | {
+        s: "local";
+        name: string;
+        type: string | null;
+        init: Expr | null;
+        isFinal: boolean;
+        /** Text of the initializer when it is short: a condition kept in a variable (`ok = p.startsWith(b)`). */
+        initText?: string;
+      }
     | { s: "assign"; target: Expr; op: string; value: Expr }
     | { s: "expr"; expr: Expr }
     | { s: "if"; test: Expr; testText: string; then: Stmt[]; else: Stmt[] | null }
@@ -106,6 +114,8 @@ export interface FieldInfo {
   isMutable: boolean;
   /** Kotlin `open`, `abstract` or `override`: a subclass can change what it holds. */
   overridable: boolean;
+  /** Declared `private` (and, in Kotlin, with no explicit setter): only this file can assign it. */
+  isPrivate?: boolean;
   init: Expr | null;
   line: number;
   /** Annotations on the field (`@Value("${jwt.secret:x}")`), when the language adapter read them. */
@@ -132,6 +142,11 @@ export interface Unit {
   classes: ClassInfo[];
   /** Kotlin top-level declarations (and the file scope for lookups). */
   top: ClassInfo;
+  /**
+   * How often each name is followed by an assignment operator anywhere in the file's text
+   * (declarations, comments and strings included: an over-count only keeps a finding).
+   */
+  assignCounts?: Map<string, number>;
   /** The file's `import` names, as written (`java.sql.Statement`, `org.foo.*`). */
   imports: string[];
   /** Kotlin `import a.b.C as D`: `D` -> `C`. */

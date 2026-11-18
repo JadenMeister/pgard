@@ -487,6 +487,9 @@ export function convertKotlin(ast: AstResult): Unit {
         type: declType(declaration),
         init,
         isFinal,
+        ...(initNode !== undefined && delegate === undefined && getter === undefined
+          ? initTextOf(initNode)
+          : {}),
       },
     ];
   }
@@ -720,6 +723,12 @@ export function convertKotlin(ast: AstResult): Unit {
     return out;
   }
 
+  /** The text of a short initializer, for conditions kept in a variable. */
+  const initTextOf = (node: AstNode): { initText?: string } => {
+    const value = text(node);
+    return value.length <= 300 ? { initText: value } : {};
+  };
+
   const addField = (info: ClassInfo, field: FieldInfo): void => {
     info.fields.set(field.name, field);
   };
@@ -744,6 +753,10 @@ export function convertKotlin(ast: AstResult): Unit {
               overridable: /\b(?:open|abstract|override)\b/.test(
                 mods === undefined ? "" : text(mods),
               ),
+              isPrivate:
+                (mods?.children ?? []).some(
+                  (child) => child.type === "visibility_modifier" && text(child) === "private",
+                ) && ofType(member, "setter") === undefined,
               init: declared.init,
               line: declared.line,
               annotations: annotationsOf(mods, 1),
@@ -840,7 +853,10 @@ export function convertKotlin(ast: AstResult): Unit {
     for (const specifiers of node.children) {
       if (specifiers.type !== "delegation_specifiers") continue;
       for (const specifier of specifiers.children) {
-        const type = specifier.children.find((child) => child.type === "user_type");
+        // `: Base(args)` wraps the type in a constructor invocation.
+        const holder =
+          specifier.children.find((child) => child.type === "constructor_invocation") ?? specifier;
+        const type = holder.children.find((child) => child.type === "user_type");
         if (type !== undefined) info.supers.push(simple(withoutTypeArguments(text(type))));
       }
     }

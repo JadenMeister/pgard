@@ -13,6 +13,7 @@ import {
   constant,
   copy,
   inferred,
+  elementTypeOf,
   isConstantCase,
   isNumericType,
   isTypeName,
@@ -30,6 +31,7 @@ import {
   type Leaf,
   type Value,
 } from "./flow-values.js";
+import { ARCHIVE_ENTRY_TYPE } from "./os-names.js";
 import { createOsSinks, type OsFinding } from "./os-sinks.js";
 import { createWebSinks, type ModelAttribute, type WebFinding } from "./web-sinks.js";
 import { RESPONSE_NAME, RESPONSE_TYPES } from "./web-names.js";
@@ -177,6 +179,63 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
   // array or collection under such a name is not a fixed table.
   const mutatedNames = new Set<string>();
   const aliasEdges: Array<[string, string]> = [];
+  // Names returned as a whole by some method (`return COLS;`), and names assigned after their
+  // declaration anywhere in the file (`table = x`, `this.table = x`, `other.table += x`).
+  const returnedNames = new Set<string>();
+  const assignedNames = new Set<string>();
+  /** Annotations that give a class setters, a generated constructor or a framework that fills private fields. */
+  const ASSIGNING_ANNOTATIONS = new Set([
+    "Setter",
+    "Data",
+    "Value",
+    "Builder",
+    "SuperBuilder",
+    "AllArgsConstructor",
+    "With",
+    "Entity",
+    "MappedSuperclass",
+    "Embeddable",
+    "Document",
+    "JsonAutoDetect",
+  ]);
+  const annotatedClasses = new Map<ClassInfo, boolean>();
+  const assignedByAnnotation = (cls: ClassInfo): boolean => {
+    const known = annotatedClasses.get(cls);
+    if (known !== undefined) return known;
+    const result =
+      (cls.annotations ?? []).some((a) => ASSIGNING_ANNOTATIONS.has(a.name)) ||
+      (cls.parent !== null && assignedByAnnotation(cls.parent));
+    annotatedClasses.set(cls, result);
+    return result;
+  };
+  /** An array, or a list/set/map made to be changed: what a getter gives out can be written to. */
+  const WRITABLE_FACTORY =
+    /^(?:asList|mutable\w+|arrayListOf|hashSetOf|linkedSetOf|hashMapOf|linkedMapOf|arrayOf|\w+ArrayOf)$/;
+  const writableTable = (field: FieldInfo, fieldType: string): boolean =>
+    /\[\]/.test(field.type ?? "") ||
+    fieldType === "Array" ||
+    /^(?:Mutable|Array|Linked|Hash|Tree)\w*$/.test(fieldType) ||
+    field.init?.k === "array" ||
+    // Kotlin `val COLS = arrayOf(...)`: no type is written, the factory says it is an array.
+    (field.init?.k === "call" &&
+      field.init.recv === null &&
+      /^(?:arrayOf|\w+ArrayOf)$/.test(field.init.name)) ||
+    (MUTABLE_COLLECTIONS.has(fieldType) &&
+      (field.init?.k === "new" ||
+        (field.init?.k === "call" && WRITABLE_FACTORY.test(field.init.name))));
+  /** Names a method hands out as a whole: `return COLS;`, `return this.COLS;`, `return b ? COLS : null;`. */
+  const exposeNames = (expr: Expr, depth: number): void => {
+    if (depth > 4) return;
+    if (expr.k === "id") returnedNames.add(expr.name);
+    else if (expr.k === "member" && expr.obj.k === "id" && expr.obj.name === "this") {
+      returnedNames.add(expr.name);
+    } else if (expr.k === "cond") {
+      exposeNames(expr.a, depth + 1);
+      exposeNames(expr.b, depth + 1);
+    } else if (expr.k === "alt") {
+      for (const option of expr.options) exposeNames(option, depth + 1);
+    }
+  };
   const rootName = (expr: Expr): string | null => {
     let current = expr;
     while (current.k === "member" || current.k === "index") current = current.obj;
@@ -225,6 +284,10 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
         usesProcessBuilder = true;
       }
       if (expr.k !== "call") return;
+      // `Arrays.asList(COLS)` is a list that writes through to the array.
+      if (expr.name === "asList" && expr.recv?.k === "id" && expr.recv.name === "Arrays") {
+        for (const arg of expr.args) exposeNames(arg, 0);
+      }
       if (expr.recv === null && realName(expr.name) === "ProcessBuilder") usesProcessBuilder = true;
       if (expr.name === "getRuntime") usesRuntime = true;
       if (MUTATORS.has(expr.name) && expr.recv !== null) {
@@ -237,6 +300,13 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       }
     },
     (stmt) => {
+      if (stmt.s === "assign") {
+        if (stmt.target.k === "id" || stmt.target.k === "member")
+          assignedNames.add(stmt.target.name);
+      }
+      if (stmt.s === "exit" && stmt.ret === true && stmt.value !== null) {
+        exposeNames(stmt.value, 0);
+      }
       if (stmt.s === "assign" && (stmt.target.k === "index" || stmt.target.k === "member")) {
         const root = rootName(stmt.target);
         if (root !== null) mutatedNames.add(root);
@@ -327,10 +397,25 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       BUILDER_TYPES.has(fieldType) ||
       /\[\]/.test(field.type ?? "") ||
       MUTABLE_COLLECTIONS.has(fieldType);
+    // A private String that holds a literal and that nothing in the file assigns again is text.
+    const neverAssigned =
+      field.isMutable &&
+      field.isPrivate === true &&
+      field.init?.k === "str" &&
+      !mutableType &&
+      (field.type === null || fieldType === "String") &&
+      (field.annotations ?? []).length === 0 &&
+      !assignedByAnnotation(owner) &&
+      !assignedNames.has(field.name) &&
+      // The declaration is one `name =`; any other (a setter, an anonymous or local class, a
+      // constructor, a string or comment that looks like one) keeps the finding.
+      unit.assignCounts !== undefined &&
+      (unit.assignCounts.get(field.name) ?? 0) === 1;
+    const mutableField = field.isMutable && !neverAssigned;
     let result: Value = unknown(
-      field.isMutable || mutableType ? `mutable field ${field.name}` : field.name,
+      mutableField || mutableType ? `mutable field ${field.name}` : field.name,
     );
-    if (field.init !== null && !field.isMutable && !field.overridable) {
+    if (field.init !== null && !mutableField && !field.overridable) {
       const evaluated = evalExpr(
         field.init,
         rootContext(owner === unit.top ? null : owner, false),
@@ -343,6 +428,8 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
         evaluated.builder ||
         BUILDER_TYPES.has(fieldType) ||
         (evaluated.table && mutatedNames.has(field.name)) ||
+        // A getter that returns the array or list hands out something that can be written to.
+        (evaluated.table && returnedNames.has(field.name) && writableTable(field, fieldType)) ||
         (mutableType && !evaluated.table);
       if (mutable) {
         // Read as text (`base.toString()`), what it holds is decided where it is appended to.
@@ -371,6 +458,29 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     return null;
   }
 
+  /**
+   * `p.takeIf { it.normalize().startsWith(base) } ?: throw ...`: the value is `p` when the check
+   * held, so it is read with that check on. The check is read the way an `if` condition is.
+   */
+  function takeIfValue(call: Expr, ctx: Context, depth: number, endsInJump: boolean): Value | null {
+    if (call.k !== "call" || call.name !== "takeIf" || call.recv === null) return null;
+    const [lambda] = call.lambdas;
+    const only = lambda?.body.length === 1 ? lambda.body[0] : undefined;
+    if (lambda === undefined || call.lambdas.length !== 1 || only?.s !== "expr") return null;
+    const subject = conditionText(call.recv, {}, 0);
+    if (subject === null) return null;
+    const test = conditionText(only.expr, { [lambda.params[0] ?? "it"]: subject }, 0);
+    if (test === null) return null;
+    const recv = call.recv;
+    const set = guardsWhen(test, true, ctx);
+    // `?: throw ...` / `?: return`: what follows only runs when the check held.
+    if (endsInJump && ctx.conditional === 0) {
+      applyGuards(set, ctx);
+      return evalExpr(recv, ctx, depth + 1);
+    }
+    return withGuards(set, ctx, () => evalExpr(recv, ctx, depth + 1));
+  }
+
   function evalBin(expr: Extract<Expr, { k: "bin" }>, ctx: Context, depth: number): Value {
     // Walk down the left spine once, so a long `+` chain costs a loop, not recursion.
     const spine: Array<Extract<Expr, { k: "bin" }>> = [];
@@ -379,7 +489,17 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       spine.push(current);
       current = current.left;
     }
-    let result = evalExpr(current, ctx, depth + 1);
+    const innermost = spine[spine.length - 1];
+    const guardedHead =
+      innermost?.op === "?:"
+        ? takeIfValue(
+            current,
+            ctx,
+            depth,
+            innermost.right.k === "lit" && innermost.right.jump !== undefined,
+          )
+        : null;
+    let result = guardedHead ?? evalExpr(current, ctx, depth + 1);
     // True once `result` is a value made here: further terms are added to it in place.
     let owned = false;
     for (let i = spine.length - 1; i >= 0; i -= 1) {
@@ -997,10 +1117,10 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       }
       case "cond": {
         evalExpr(expr.test, ctx, depth + 1);
-        const a = withGuards(guardsWhen(expr.testText, true), ctx, () =>
+        const a = withGuards(guardsWhen(expr.testText, true, ctx), ctx, () =>
           evalExpr(expr.a, ctx, depth + 1),
         );
-        const b = withGuards(guardsWhen(expr.testText, false), ctx, () =>
+        const b = withGuards(guardsWhen(expr.testText, false, ctx), ctx, () =>
           evalExpr(expr.b, ctx, depth + 1),
         );
         return alternatives([a, b]);
@@ -1051,10 +1171,110 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     allow: string[];
     path: PathGuard[];
   }
-  const guardsWhen = (text: string, truth: boolean): GuardSet =>
-    truth
+  const guardsWhen = (source: string, truth: boolean, ctx: Context): GuardSet => {
+    const text = expandConditions(source, ctx);
+    return truth
       ? { allow: guardedWhenTrue(text), path: pathGuardedWhenTrue(text) }
       : { allow: guardedWhenFalse(text), path: pathGuardedWhenFalse(text) };
+  };
+
+  /** The text of a short condition built from names, calls and strings; null for anything else. */
+  function conditionText(expr: Expr, names: Record<string, string>, depth: number): string | null {
+    if (depth > 8) return null;
+    const list = (items: readonly Expr[]): string | null => {
+      const parts: string[] = [];
+      for (const item of items) {
+        const part = conditionText(item, names, depth + 1);
+        if (part === null) return null;
+        parts.push(part);
+      }
+      return parts.join(", ");
+    };
+    switch (expr.k) {
+      case "id":
+        return Object.hasOwn(names, expr.name) ? (names[expr.name] as string) : expr.name;
+      case "str":
+        return JSON.stringify(expr.text);
+      case "member": {
+        const obj = conditionText(expr.obj, names, depth + 1);
+        return obj === null ? null : `${obj}.${expr.name}`;
+      }
+      case "call": {
+        if (expr.lambdas.length > 0) return null;
+        const recv = expr.recv === null ? "" : conditionText(expr.recv, names, depth + 1);
+        const args = list(expr.args);
+        if (recv === null || args === null) return null;
+        return `${recv === "" ? "" : `${recv}.`}${expr.name}(${args})`;
+      }
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * A variable that holds a condition (`boolean ok = p.normalize().startsWith(base);`) stands for
+   * that condition where it is tested (`if (!ok) throw ...;`), as long as neither the variable nor
+   * anything it reads has been assigned since. Quoted text is left alone; one level only.
+   */
+  // Conditions are expanded within a budget for the whole file: a file with thousands of tests
+  // that name conditions would otherwise pay for each of them. Past it nothing is expanded and
+  // the findings stay as they are.
+  const EXPANSION_BUDGET = 60_000;
+  let expansionLeft = EXPANSION_BUDGET;
+  let conditionsKept = 0;
+  const MAX_EXPANDED = 1000;
+  const MAX_EXPANDED_NAMES = 8;
+  function expandConditions(text: string, ctx: Context): string {
+    if (text.length > 600 || conditionsKept === 0 || expansionLeft <= 0) return text;
+    // The result is capped (a test that names many conditions of 300 characters each would grow
+    // to tens of kilobytes): past the cap nothing is expanded and the finding stays as it is.
+    let grown = text.length;
+    let expanded = 0;
+    let over = false;
+    const result = text.replace(
+      /"(?:[^"\\]|\\.)*"|(?<![\w.$])([A-Za-z_]\w*)(?![\w$(])/g,
+      (all, name: string | undefined) => {
+        if (name === undefined || over) return all;
+        const binding = ctx.scope.find(name);
+        if (
+          binding?.boolText === undefined ||
+          (binding.assigns ?? 0) !== 0 ||
+          binding.boolDeps?.some(([dep, count]) => (dep.assigns ?? 0) !== count)
+        ) {
+          return all;
+        }
+        grown += binding.boolText.length + 2 - name.length;
+        expanded += 1;
+        if (grown > MAX_EXPANDED || expanded > MAX_EXPANDED_NAMES) {
+          over = true;
+          return all;
+        }
+        return `(${binding.boolText})`;
+      },
+    );
+    if (over) {
+      expansionLeft -= MAX_EXPANDED;
+      return text;
+    }
+    expansionLeft -= grown - text.length;
+    return result;
+  }
+
+  /** A short condition kept in a local (`val ok = ...`): its text and the variables it reads, as they are now. */
+  function noteCondition(binding: Binding, text: string, ctx: Context): void {
+    if (!/\b(?:startsWith|contains|matches|equals|containsKey)\b/.test(text)) return;
+    const deps: Array<[Binding, number]> = [];
+    const bare = text.replace(/"(?:[^"\\]|\\.)*"/g, '""');
+    for (const match of bare.matchAll(/(?<![\w.$])[A-Za-z_]\w*/g)) {
+      const dep = ctx.scope.find(match[0]);
+      if (dep === null || dep === binding) continue;
+      if (deps.length >= 12) return;
+      if (!deps.some(([known]) => known === dep)) deps.push([dep, dep.assigns ?? 0]);
+    }
+    binding.boolText = text;
+    binding.boolDeps = deps;
+    conditionsKept += 1;
+  }
 
   /** A path made by a constructor that is never used is reported once the analysis ends: a check demotes it. */
   const noteGuard = (binding: Binding, permanent: boolean): void => {
@@ -1142,6 +1362,61 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     return "";
   }
 
+  /** Types that are SQL objects only from the library they are imported from (`Connection` is left out: `prepareStatement(sql)` is a common wrapper). */
+  const STRONG_SQL_TYPES: ReadonlyMap<string, readonly string[]> = new Map([
+    ["Statement", ["java.sql"]],
+    ["CallableStatement", ["java.sql"]],
+    ["JdbcTemplate", ["org.springframework.jdbc.core"]],
+    ["JdbcOperations", ["org.springframework.jdbc.core"]],
+    ["NamedParameterJdbcTemplate", ["org.springframework.jdbc.core.namedparam"]],
+    ["NamedParameterJdbcOperations", ["org.springframework.jdbc.core.namedparam"]],
+    ["JdbcClient", ["org.springframework.jdbc.core.simple"]],
+    ["EntityManager", ["javax.persistence", "jakarta.persistence"]],
+    ["Session", ["org.hibernate"]],
+  ]);
+
+  /** The receiver is a variable, parameter or field declared with one of those types, imported from its library. */
+  function strongSqlReceiver(recv: Expr | null, ctx: Context): boolean {
+    if (recv === null) return false;
+    const declared = typeOfExpr(recv, ctx);
+    if (declared === null || declared.length > 200) return false;
+    const head = declared.replace(/<.*$/s, "").replace(/\?$/, "").trim();
+    const dot = head.lastIndexOf(".");
+    const simple = realName(head.slice(dot + 1));
+    const packages = STRONG_SQL_TYPES.get(simple);
+    if (packages === undefined) return false;
+    if (dot > 0) return packages.includes(head.slice(0, dot));
+    return packages.some((pkg) =>
+      // The import reader keeps a wildcard import as `java.sql.` (the `*` is cut off).
+      unit.imports.some(
+        (name) => name === `${pkg}.${simple}` || name === `${pkg}.*` || name === `${pkg}.`,
+      ),
+    );
+  }
+
+  /**
+   * The element type of a typed collection, when it can say the elements are not archive entries:
+   * not a type parameter (`List<T>`), and, if the file declares it, with no archive supertype
+   * (`class Item : ZipEntry`).
+   */
+  function ruledOutElement(collectionType: string | null): string | null {
+    const element = elementTypeOf(collectionType);
+    if (element === null) return null;
+    const simple = realName(element.slice(element.lastIndexOf(".") + 1));
+    if (/^[A-Z][A-Z0-9]?$/.test(simple)) return null;
+    const seen = new Set<string>();
+    const stack = [simple];
+    while (stack.length > 0 && seen.size < 24) {
+      const name = stack.pop() as string;
+      if (seen.has(name)) continue;
+      seen.add(name);
+      // A class of the file that extends an archive entry is one.
+      if (ARCHIVE_ENTRY_TYPE.test(name) && name !== simple) return name;
+      for (const sup of classByName.get(name)?.supers ?? []) stack.push(baseType(sup));
+    }
+    return element;
+  }
+
   function checkSink(expr: Extract<Expr, { k: "call" }>, args: Value[], ctx: Context): void {
     const { name } = expr;
     const isJdbc = JDBC_SINKS.has(name);
@@ -1172,8 +1447,28 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     const helperLeaf = dynamic.find(
       (leaf) => leaf.k === "unknown" && /\(\)$|^mutable field /.test(leaf.name),
     );
-    const helper =
+    let helper =
       argument.opaque !== "" ? argument.opaque : helperLeaf?.k === "unknown" ? helperLeaf.name : "";
+    // A bare parameter or a constant from another file, given whole to a receiver that is declared
+    // as a JDBC, Spring JDBC or JPA object: the text is not followed, which is not "safe".
+    if (
+      helper === "" &&
+      !argument.composed &&
+      tainted.length === 0 &&
+      strongSqlReceiver(expr.recv, ctx)
+    ) {
+      const first = dynamic[0];
+      if (
+        dynamic.every(
+          (leaf) =>
+            leaf.k === "unknown" ||
+            (leaf.k === "inferred" && /defined in another file$/.test(leaf.why)),
+        )
+      ) {
+        helper =
+          first?.k === "unknown" ? `variable ${first.name}` : "a constant defined in another file";
+      }
+    }
     if (!argument.composed) {
       // A bare value that is not a built string: request input read directly is reported; the
       // result of a helper is reported at low confidence; anything else (a parameter, a field)
@@ -1388,6 +1683,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     }
     const old = binding.value;
     const before = new Set(nonConst(old.leaves).map(leafKey));
+    binding.assigns = (binding.assigns ?? 0) + 1;
     binding.guarded = false;
     binding.pathGuarded = false;
     if (stmt.op === "=") {
@@ -1433,6 +1729,12 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
           const declared = declare(ctx, stmt.name, stmt.type, initial);
           declared.derived = derivedOf(stmt.init);
           declared.urlOf = urlSourcesOf(stmt.init);
+          if (
+            stmt.initText !== undefined &&
+            /^(?:boolean|Boolean|val|var)?$/.test(stmt.type ?? "")
+          ) {
+            noteCondition(declared, stmt.initText, ctx);
+          }
           break;
         }
         case "assign":
@@ -1454,14 +1756,14 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
           break;
         case "assert": {
           evalExpr(stmt.test, ctx, depth + 1);
-          applyGuards(guardsWhen(stmt.testText, true), ctx);
+          applyGuards(guardsWhen(stmt.testText, true, ctx), ctx);
           break;
         }
         case "if": {
           evalExpr(stmt.test, ctx, depth + 1);
           const inner = { ...ctx, conditional: ctx.conditional + 1 };
-          const whenTrue = guardsWhen(stmt.testText, true);
-          const whenFalse = guardsWhen(stmt.testText, false);
+          const whenTrue = guardsWhen(stmt.testText, true, ctx);
+          const whenFalse = guardsWhen(stmt.testText, false, ctx);
           withGuards(whenTrue, ctx, () => {
             execBranch(stmt.then, inner, depth);
           });
@@ -1508,11 +1810,16 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
                 : iter.table
                   ? inferred("element of a fixed allowlist")
                   : unknown(stmt.each.name);
+            // Kotlin `for (entry in logs)`: the loop variable has the element type of a typed list.
+            const eachType =
+              stmt.each.type === null || /^(?:var|val)$/.test(stmt.each.type)
+                ? (ruledOutElement(typeOfExpr(stmt.each.iter, loopCtx)) ?? stmt.each.type)
+                : stmt.each.type;
             declare(
               loopCtx,
               stmt.each.name,
-              stmt.each.type,
-              isNumericType(stmt.each.type) ? inferred("numeric type") : element,
+              eachType,
+              isNumericType(eachType) ? inferred("numeric type") : element,
             );
           }
           // Until nothing changes: what a variable holds can only grow, and each kind of value is

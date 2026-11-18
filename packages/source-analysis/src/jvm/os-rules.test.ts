@@ -1852,11 +1852,11 @@ describe("a parameter or other-file constant at a sink is low, never silent", ()
     expect(analysis.findings.filter((finding) => finding.ruleId !== "PG-SQL-005")).toEqual([]);
   });
 
-  it("does not change what the SQL rule does with a bare value", async () => {
+  it("reports a bare value given to a typed JDBC Statement at low confidence only", async () => {
     const analysis = await run(
       java(JDBC, "void h(String q, Statement st) throws Exception { st.executeQuery(q); }"),
     );
-    expect(of(analysis, "PG-SQL-005")).toEqual([]);
+    expect(of(analysis, "PG-SQL-005").map((finding) => finding.confidence)).toEqual(["low"]);
   });
 });
 

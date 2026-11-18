@@ -7,8 +7,11 @@ import {
   PASSWORD_PROPERTY,
 } from "./jvm/crypto-rules.js";
 import { analyzeJsSource } from "./js/analyze-js.js";
+import { analyzeJvmTree, assignCountsOf } from "./jvm/analyze-jvm.js";
+import { elementTypeOf } from "./jvm/flow-values.js";
 import { analyzeVueSource } from "./vue/analyze-vue.js";
 import { withoutTypeArguments } from "./jvm/kotlin-ir.js";
+import { TreeSitterRuntime } from "./tree-sitter/runtime.js";
 import {
   analyzeJsp,
   analyzeThymeleaf,
@@ -74,6 +77,147 @@ describe("withoutTypeArguments (Kotlin supertype name)", () => {
     const { value, ms } = timed(() => withoutTypeArguments(input));
     expect(value).toBe(input);
     expect(ms).toBeLessThan(LIMIT_MS);
+  });
+});
+
+describe("elementTypeOf (loop variable type from a typed collection, #295)", () => {
+  it.each([
+    ["List<LogEntry>", "LogEntry"],
+    ["MutableList<LogEntry?>", "LogEntry"],
+    ["Array<LogEntry>", "LogEntry"],
+    ["LogEntry[]", "LogEntry"],
+    ["List<? extends LogEntry>", "LogEntry"],
+    ["List<out LogEntry>", "LogEntry"],
+    ["Set<a.b.LogEntry>", "a.b.LogEntry"],
+    ["Map<String, LogEntry>", null],
+    ["List<*>", null],
+    ["List<T>", "T"],
+    ["Plain", null],
+    ["", null],
+  ])("reads %j", (input, expected) => {
+    expect(elementTypeOf(input)).toBe(expected);
+  });
+
+  it("is linear on a long type with many '<' and no '>'", () => {
+    for (const input of [
+      `List${"<".repeat(SIZE)}`,
+      `List<${"A<".repeat(SIZE)}>`,
+      "A[]".repeat(SIZE),
+    ]) {
+      const { ms } = timed(() => elementTypeOf(input));
+      expect(ms).toBeLessThan(LIMIT_MS);
+    }
+  });
+});
+
+describe("conditions kept in variables, field and receiver checks (#294, #295, #286)", () => {
+  it("stays linear in a file with a thousand condition variables and tests", async () => {
+    const runtime = new TreeSitterRuntime();
+    try {
+      const lines: string[] = [];
+      for (let i = 0; i < 1500; i += 1) {
+        lines.push(
+          `boolean ok${i} = x.normalize().startsWith(base) && ${"a".repeat(200)}.contains(x);`,
+          `if (!ok${i}) throw new SecurityException();`,
+        );
+      }
+      const source = `import java.nio.file.*;\nclass A { void h(Path x, Path base) throws Exception {\n${lines.join("\n")}\nFiles.readAllBytes(x);\n} }\n`;
+      const outcome = await runtime.parse("java", source);
+      if (outcome.status !== "parsed") throw new Error(`not parsed: ${outcome.status}`);
+      const { ms } = timed(() => analyzeJvmTree(outcome.tree.rootNode, source, "A.java", "java"));
+      outcome.dispose();
+      expect(ms).toBeLessThan(LIMIT_MS * 4);
+    } finally {
+      runtime.dispose();
+    }
+  });
+});
+
+describe("assignCountsOf (#286 review)", () => {
+  it("counts names followed by an assignment operator, not comparisons", () => {
+    const counts = assignCountsOf(
+      "a = 1; b += 2; c == 3; d <= 4; e != 5; this.f = 6; g -> 7; h >>= 1",
+    );
+    expect([...counts.entries()]).toEqual([
+      ["a", 1],
+      ["b", 1],
+      ["f", 1],
+      ["h", 1],
+    ]);
+  });
+
+  it("is linear on long identifiers, digits and whitespace runs", () => {
+    for (const input of [
+      "a".repeat(SIZE),
+      `${"a".repeat(SIZE)}=`,
+      "1".repeat(SIZE) + "a",
+      `a${" ".repeat(SIZE)}b`,
+      "a ".repeat(SIZE / 2),
+      "a=".repeat(SIZE / 2),
+    ]) {
+      const { ms } = timed(() => assignCountsOf(input));
+      expect(ms).toBeLessThan(LIMIT_MS);
+    }
+  });
+});
+
+describe("condition expansion has a budget for the whole file (re-review)", () => {
+  it("does not pay for thousands of tests that name conditions, and keeps the finding", async () => {
+    const runtime = new TreeSitterRuntime();
+    try {
+      const decl = Array.from(
+        { length: 7 },
+        (_, i) => `boolean a${i} = q.startsWith("x") && q.contains("y");`,
+      ).join("\n");
+      const names = Array.from({ length: 7 }, (_, i) => `a${i}`).join("&&");
+      const tests = Array.from(
+        { length: 6000 },
+        () => `if (!(${names})) throw new IllegalStateException();`,
+      ).join("\n");
+      const source = `import org.springframework.web.bind.annotation.*;\nimport org.springframework.jdbc.core.JdbcTemplate;\nclass A { JdbcTemplate jdbc;\n@GetMapping("/x") void h(@RequestParam String q) {\n${decl}\n${tests}\njdbc.queryForList("select " + q);\n}\n}\n`;
+      const outcome = await runtime.parse("java", source);
+      if (outcome.status !== "parsed") throw new Error(`not parsed: ${outcome.status}`);
+      const { value, ms } = timed(() =>
+        analyzeJvmTree(outcome.tree.rootNode, source, "A.java", "java"),
+      );
+      outcome.dispose();
+      expect(ms).toBeLessThan(LIMIT_MS);
+      expect(value.findings.some((f) => f.ruleId === "PG-SQL-005")).toBe(true);
+    } finally {
+      runtime.dispose();
+    }
+  });
+});
+
+describe("condition expansion is capped (#295 review)", () => {
+  it("does not grow a test that names many long conditions, and keeps the finding", async () => {
+    const runtime = new TreeSitterRuntime();
+    try {
+      const long = `q.startsWith("${"x".repeat(230)}") && q.contains("y")`;
+      const decl = Array.from({ length: 150 }, (_, i) => `boolean a${i} = ${long};`).join("\n");
+      const names = Array.from({ length: 150 }, (_, i) => `a${i}`)
+        .join("&&")
+        .slice(0, 590)
+        .replace(/&&?a?\d*$/, "");
+      const tests = Array.from(
+        { length: 300 },
+        () => `if (!(${names})) throw new IllegalStateException();`,
+      ).join("\n");
+      const source = `import org.springframework.web.bind.annotation.*;\nimport org.springframework.jdbc.core.JdbcTemplate;\nclass A { JdbcTemplate jdbc;\n@GetMapping("/x") void h(@RequestParam String q) {\n${decl}\n${tests}\njdbc.queryForList("select " + q);\n}\n}\n`;
+      const outcome = await runtime.parse("java", source);
+      if (outcome.status !== "parsed") throw new Error(`not parsed: ${outcome.status}`);
+      const { value, ms } = timed(() =>
+        analyzeJvmTree(outcome.tree.rootNode, source, "A.java", "java"),
+      );
+      outcome.dispose();
+      expect(ms).toBeLessThan(LIMIT_MS * 2);
+      // Past the cap nothing is expanded, so the finding is not silenced.
+      expect(value.findings.some((f) => f.ruleId === "PG-SQL-005" && f.confidence === "high")).toBe(
+        true,
+      );
+    } finally {
+      runtime.dispose();
+    }
   });
 });
 
