@@ -101,6 +101,8 @@ export interface MethodInfo {
   line: number;
   /** The declared return type, as written, when the language adapter read it. */
   returnType?: string | null;
+  /** Kotlin extension function: the receiver type as written (`ApplicationCall`, `List<String>`). */
+  receiverType?: string;
 }
 
 export interface FieldInfo {

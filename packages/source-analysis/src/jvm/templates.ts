@@ -15,6 +15,8 @@ export interface ModelSource {
   line: number;
   /** Literal view names the method that set it returns; empty when none is known. */
   views: string[];
+  /** Views beyond `views` could not be resolved: other templates keep the name-only match. */
+  partial?: boolean;
 }
 
 export interface TemplateAnalysis {
@@ -665,14 +667,72 @@ const THYMELEAF_SOURCE =
   /\$\{\s*(?:#?(?:request|httpServletRequest)\s*\.\s*(?:getParameter|getHeader|queryString|getQueryString|requestURI|getRequestURI|getRequestURL|parameterMap|getCookies)|param\s*[.[]|#vars\.param|#request\.getParameter)|(?<![\w.])param\s*[.[]\s*['"\w]/;
 
 /** The view name a template file answers to: its path under `templates/`, without the extension. */
-function viewOf(path: string): string {
+export function viewOf(path: string): string {
   const at = path.lastIndexOf("templates/");
   const rest = at === -1 ? (path.split("/").pop() ?? path) : path.slice(at + "templates/".length);
   return rest.replace(/\.[^./]+$/, "");
 }
 
+/** A view name that already is its own normal form (the usual case): compared with no allocation. */
+const plainView = (view: string): boolean =>
+  !view.includes("::") && !view.startsWith("/") && view === view.trim();
+
+const listsView = (source: ModelSource, view: string): boolean => {
+  for (const candidate of source.views) {
+    if (plainView(candidate) ? candidate === view : normalizeView(candidate) === view) return true;
+  }
+  return false;
+};
+
+/**
+ * The source of `name` that is linked to `view`. Looked up once per model, name and view, so a
+ * template that reads one attribute in a hundred expressions scans its sources once.
+ */
+const linkedCache = new WeakMap<object, Map<string, ModelSource | null>>();
+function linkedSource(
+  model: ReadonlyMap<string, ModelSource[]>,
+  name: string,
+  sources: readonly ModelSource[],
+  view: string,
+): ModelSource | null {
+  let cache = linkedCache.get(model);
+  if (cache === undefined) {
+    cache = new Map();
+    linkedCache.set(model, cache);
+  }
+  const key = `${name}\u0000${view}`;
+  const known = cache.get(key);
+  if (known !== undefined) return known;
+  const found = sources.find((source) => listsView(source, view)) ?? null;
+  cache.set(key, found);
+  return found;
+}
+
 const normalizeView = (view: string): string =>
   (view.split("::")[0] ?? view).trim().replace(/^\//, "");
+
+/**
+ * The part of the model a template job needs: for every attribute name the template mentions, the
+ * first source linked to its view and the first one matched by name only (the two the judgement
+ * can use), so the job does not carry every controller of a large project to every template.
+ */
+export function modelForTemplate(
+  model: Iterable<[string, ModelSource[]]>,
+  words: ReadonlySet<string>,
+  view: string,
+): Array<[string, ModelSource[]]> {
+  const out: Array<[string, ModelSource[]]> = [];
+  for (const [name, sources] of model) {
+    if (!words.has(name)) continue;
+    const linked = sources.find((source) => listsView(source, view));
+    const byName = sources.find((source) => source.views.length === 0 || source.partial === true);
+    const keep = [linked, byName].filter(
+      (source, i, all): source is ModelSource => source !== undefined && all.indexOf(source) === i,
+    );
+    if (keep.length > 0) out.push([name, keep]);
+  }
+  return out;
+}
 
 /** Exported for the differential test (#506). */
 export function thymeleafJudge(
@@ -719,7 +779,7 @@ export function thymeleafLeaf(
     const name = match[1] as string;
     const sources = model.get(name) ?? [];
     // The handler that returns this template is the one whose attribute counts.
-    const linked = sources.find((source) => source.views.some((v) => normalizeView(v) === view));
+    const linked = linkedSource(model, name, sources, view) ?? undefined;
     if (linked !== undefined) {
       return {
         cls: "tainted",
@@ -727,7 +787,7 @@ export function thymeleafLeaf(
         detail: `model attribute '${name}' is set from request input in ${linked.path}:${linked.line}`,
       };
     }
-    const byName = sources.find((source) => source.views.length === 0);
+    const byName = sources.find((source) => source.views.length === 0 || source.partial === true);
     if (byName !== undefined && weak === null) {
       weak = {
         cls: "unknown",

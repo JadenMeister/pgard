@@ -20,6 +20,7 @@ import {
   THYMELEAF_ESCAPE,
 } from "./jvm/templates.js";
 import { withoutTrailingQuotes } from "./python/analyze-python.js";
+import { matchesTemplate, modelAttributeName, normalizePath } from "./jvm/view-links.js";
 
 /**
  * The patterns the #368 audit found superlinear on the tree-sitter path (#371). A crafted input of
@@ -521,5 +522,115 @@ describe("Vue template scopes stay linear (#278 review)", () => {
     expect(value.findings).toHaveLength(1);
     // Copying every outer alias at each level took about 14 s here; linear takes well under 1 s.
     expect(ms).toBeLessThan(LIMIT_MS * 8);
+  });
+});
+
+describe("view and mapping patterns (#338)", () => {
+  it("normalizePath is linear on long runs of slashes, dots and a long query", () => {
+    for (const input of [
+      "/".repeat(SIZE),
+      `${"a/".repeat(SIZE / 2)}?${"&".repeat(SIZE)}`,
+      `${".".repeat(SIZE)}/x`,
+    ]) {
+      const { value, ms } = timed(() => normalizePath(input));
+      expect(typeof value).toBe("string");
+      expect(ms).toBeLessThan(LIMIT_MS);
+    }
+    expect(normalizePath("//a///b/?x=1#f")).toBe("/a/b");
+    expect(normalizePath("")).toBe("/");
+  });
+  it("matchesTemplate is linear on many segments and long braces", () => {
+    const many = "/a".repeat(SIZE / 4);
+    const braces = `/${"{".repeat(SIZE)}`;
+    for (const [mapping, target] of [
+      [many, many],
+      [braces, `/${"x".repeat(SIZE)}`],
+      [`${many}/{id}`, `${many}/${"9".repeat(SIZE / 2)}`],
+    ] as const) {
+      const { ms } = timed(() => matchesTemplate(mapping, target));
+      expect(ms).toBeLessThan(LIMIT_MS);
+    }
+    expect(matchesTemplate("/items/{id}", "/items/7")).toBe(true);
+    expect(matchesTemplate("/items/{id}", "/items/7/x")).toBe(false);
+  });
+  it("modelAttributeName is linear on long return types", () => {
+    const annotation = { name: "ModelAttribute", value: null, named: new Map(), line: 1 };
+    for (const type of [
+      "a.".repeat(SIZE / 2),
+      `List<${"a.".repeat(SIZE / 2)}`,
+      "A".repeat(SIZE),
+      `${"List<".repeat(SIZE / 8)}x`,
+    ]) {
+      const { ms } = timed(() => modelAttributeName(annotation, type));
+      expect(ms).toBeLessThan(LIMIT_MS);
+    }
+    expect(modelAttributeName(annotation, "List<Item>")).toBe("itemList");
+    expect(modelAttributeName(annotation, "String")).toBe("string");
+  });
+});
+
+describe("model-to-view links stay linear (#338 review)", () => {
+  const HEAD =
+    "import org.springframework.stereotype.Controller;\nimport org.springframework.web.bind.annotation.*;\nimport org.springframework.web.servlet.mvc.support.RedirectAttributes;\n@Controller\nclass C {\n";
+  const parse = async (source: string) => {
+    const runtime = new TreeSitterRuntime();
+    try {
+      const outcome = await runtime.parse("java", source);
+      if (outcome.status !== "parsed") throw new Error(outcome.status);
+      try {
+        return timed(() => analyzeJvmTree(outcome.tree.rootNode, source, "C.java", "java"));
+      } finally {
+        outcome.dispose();
+      }
+    } finally {
+      runtime.dispose();
+    }
+  };
+  const controller = (handlers: number, models: number): string => {
+    let source = HEAD;
+    for (let i = 0; i < handlers; i += 1) {
+      source += `@GetMapping("/h${i}") String h${i}() { return "v${i}"; }\n`;
+    }
+    for (let i = 0; i < models; i += 1) {
+      source += `@ModelAttribute("b") String b${i}(@RequestParam String b) { return b; }\n`;
+    }
+    return `${source}}\n`;
+  };
+
+  it("many @ModelAttribute methods of one name are one source, not one per method", async () => {
+    const few = await parse(controller(400, 20));
+    const many = await parse(controller(400, 2000));
+    expect(few.value.modelAttributes).toHaveLength(1);
+    expect(many.value.modelAttributes).toHaveLength(1);
+    // 100x more methods must be far from 100x the time (with a floor for slow runners).
+    expect(many.ms).toBeLessThan(Math.max(LIMIT_MS, few.ms * 40));
+  });
+
+  it("many flash attributes that lead to the same views are few sources", async () => {
+    let source = HEAD;
+    for (let i = 0; i < 300; i += 1) {
+      source += `@GetMapping("/x/{a}/t${i % 3}") String g${i}() { return "v${i}"; }\n`;
+    }
+    for (let i = 0; i < 2000; i += 1) {
+      source += `@PostMapping("/p${i}") String p${i}(@RequestParam String q, RedirectAttributes ra) { ra.addFlashAttribute("f", q); return "redirect:/x/1/t${i % 3}"; }\n`;
+    }
+    const { value, ms } = await parse(`${source}}\n`);
+    expect(value.modelAttributes.length).toBeLessThanOrEqual(3);
+    expect(ms).toBeLessThan(LIMIT_MS * 4);
+  });
+
+  it("a template that reads one attribute many times scans the sources once", () => {
+    const views = Array.from({ length: 100 }, (_, i) => `v${i}`);
+    const sources = Array.from({ length: 3000 }, (_, i) => ({
+      path: "C.java",
+      line: i,
+      views,
+      partial: true,
+    }));
+    const model = new Map([["b", sources]]);
+    const page = '<p th:utext="${b}"></p>\n'.repeat(5000);
+    const { value, ms } = timed(() => analyzeThymeleaf(page, "templates/other.html", model));
+    expect(value.findings.length).toBeGreaterThan(0);
+    expect(ms).toBeLessThan(LIMIT_MS * 4);
   });
 });

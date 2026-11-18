@@ -67,10 +67,12 @@ describe("Kotlin extension functions", () => {
     );
     expect(entry?.status).toBe("completed");
   });
-  it("an HttpServletResponse extension is reported as unsupported", async () => {
+  it("an HttpServletResponse extension is followed through its receiver (#339): a finding, not partial", async () => {
     const source = `import javax.servlet.http.HttpServletResponse\nfun HttpServletResponse.html(s: String) {\n  contentType = "text/html"\n  writer.write(s)\n}\n`;
-    expect((await run(source, "K.kt")).unsupportedForms).toContain("extension function");
-    expect((await scan(source))?.status).toBe("partial");
+    const analysis = await run(source, "K.kt");
+    expect(analysis.unsupportedForms).not.toContain("extension function");
+    expect(of(analysis.findings, XSS)).toHaveLength(1);
+    expect((await scan(source))?.status).toBe("completed");
   });
   it("an implicit writer in an extension of another type is unsupported", async () => {
     const source = `class Page\nfun Page.render(w: java.io.Writer) {\n  writer.write("x")\n}\n`;
