@@ -402,6 +402,40 @@ describe("comparison with the previous stored scan", () => {
     ).toBe("scan-30");
   });
 
+  async function writeFutureScan() {
+    await run(depsWith(ALLOWED_OUTCOME, moved(10)));
+    const [name] = await readdir(repoDir());
+    const text = (await readFile(path.join(repoDir(), name as string), "utf8"))
+      .replace('"scanId":"scan-10"', '"scanId":"scan-99"')
+      .replaceAll("src/a.ts", "src/other.ts");
+    expect(text).toContain("scan-99");
+    expect(text).toContain("src/other.ts");
+    await writeFile(path.join(repoDir(), "9999999999998-0123456789abcdef.json"), text);
+  }
+
+  it("the scan command skips a future-dated stored scan and compares with the older one", async () => {
+    await writeFutureScan();
+    const { captured } = await run(depsWith(ALLOWED_OUTCOME, moved(11)));
+    expect(captured.stderr()).toContain("dated after this scan");
+    expect(captured.stdout()).toContain("Since the last scan");
+    // Against scan-10 the finding moved; against the future scan-99 (another file) it would be new.
+    expect(captured.stdout()).toContain("1 moved");
+  });
+
+  it("storeScanResult without a preloaded scan skips a future-dated stored scan too", async () => {
+    await writeFutureScan();
+    const captured = createTestIo();
+    await storeScanResult(
+      createTestContext(captured, depsWith(ALLOWED_OUTCOME)),
+      moved(11),
+      ALLOWED_OUTCOME,
+      "/work/repo",
+      false,
+      true,
+    );
+    expect(captured.stderr()).toContain("dated after this scan");
+  });
+
   it("writes the summary to stderr, not stdout, when told the output is JSON", async () => {
     await run(depsWith(ALLOWED_OUTCOME, moved(10)));
     const captured = createTestIo();

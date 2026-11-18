@@ -94,6 +94,19 @@ describe("dependency advisories merged by a data update", () => {
     expect(ids(single.noLongerReported)).toEqual(["GHSA-y"]);
   });
 
+  it("stays gone when the same package, version and ids are in another lockfile", () => {
+    const inOtherLockfile = (finding: Finding): Finding => ({
+      ...finding,
+      location: { ...finding.location, path: "packages/app/package-lock.json" },
+    });
+    const result = compare(
+      [dep("GHSA-x", ["CVE-1"]), dep("GHSA-y", [])],
+      [inOtherLockfile(dep("GHSA-x", ["CVE-1", "GHSA-y"]))],
+    );
+    expect(ids(result.noLongerReported)).toEqual(["GHSA-x", "GHSA-y"]);
+    expect(ids(result.new)).toEqual(["GHSA-x"]);
+  });
+
   it("does not treat a partly overlapping id set as merged", () => {
     const result = compare(
       [dep("GHSA-x", []), dep("GHSA-y", ["GHSA-q"])],
@@ -102,7 +115,7 @@ describe("dependency advisories merged by a data update", () => {
     expect(ids(result.noLongerReported)).toEqual(["GHSA-y"]);
   });
 
-  it("gives the same answer whatever order the findings arrive in", () => {
+  it("gives the same answer for the same input, however the previous findings are listed", () => {
     const after = [dep("GHSA-x", ["CVE-1", "GHSA-y"])];
     for (const before of [
       [dep("GHSA-y", []), dep("GHSA-x", ["CVE-1"])],

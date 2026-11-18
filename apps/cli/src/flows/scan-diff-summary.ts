@@ -5,7 +5,12 @@ import {
   type ScanComparison,
   type ScanResult,
 } from "@pgard/findings";
-import { isNewerSchemaMinor, type ResultStore, type StoredScan } from "@pgard/result-store";
+import {
+  isFutureDated,
+  isNewerSchemaMinor,
+  type ResultStore,
+  type StoredScan,
+} from "@pgard/result-store";
 import { CLI_TEXT, type CliText } from "../ui/i18n/cli-text.js";
 import { safeText } from "../ui/formatters/style.js";
 
@@ -45,8 +50,8 @@ export async function findPreviousScan(
 ): Promise<PreviousScan> {
   const found = await store.findNewest(repositoryId, (scan) => {
     if (scan.result.scanId === currentScanId) return "it is the scan being compared.";
-    if (currentAtMs !== null && scan.savedAt.getTime() > currentAtMs) {
-      return "it is dated after this scan (is the clock set right?).";
+    if (currentAtMs !== null && isFutureDated(scan.savedAt.getTime(), currentAtMs)) {
+      return "it is dated after this scan (is the clock set right?); `pgard history clear --all` removes stored results.";
     }
     if (isNewerMinor(scan.sourceVersion)) {
       return `it uses schema version ${safeText(scan.sourceVersion, 12)}, newer than this PGARD understands.`;
