@@ -177,12 +177,18 @@ describe("pgard doctor in Korean", () => {
       );
     };
     expect(await rowFor({ status: "output", text: 'openjdk version "17.0.21"' })).toBe(
-      "  [warn] Java 런타임: Java 17.0.21은(는) CVE-2026-91403(critical) 영향 목록에 있습니다. JDK 제공사의 수정된 릴리스로 업데이트하세요. PGARD 목록 기준일: 2026-11-18. 출처: https://www.oracle.com/security-alerts/alert-cve-2026-91403.html",
+      "  [warn] Java 런타임: Java 17.0.21은(는) CVE-2026-91403(치명적; 제공사 공지 2026-10-21) 영향 목록에 있습니다. JDK 제공사의 수정된 릴리스로 업데이트하세요. PGARD 목록 기준일: 2026-11-18. 출처: https://www.oracle.com/security-alerts/alert-cve-2026-91403.html",
     );
     const notListed = await rowFor({ status: "output", text: 'openjdk version "17.0.22"' });
     expect(notListed).toContain("[info]");
     expect(notListed).toContain("PGARD 목록에 없습니다 (목록 기준일 2026-11-18)");
     expect(notListed).not.toMatch(/안전|취약하지 않/);
+    const older = await rowFor({ status: "output", text: 'openjdk version "22.0.2"' });
+    expect(older).toContain("[warn]");
+    expect(older).toContain(
+      "제공사 공지가 다루지 않는 오래된 릴리스 라인입니다 (지원 종료, 영향을 받을 수 있음)",
+    );
+    expect(older).not.toMatch(/안전|취약하지 않|목록에 없습니다/);
     expect(await rowFor({ status: "output", text: "???" })).toContain("판정하지 않았습니다");
     expect(await rowFor({ status: "failed", cause: "timeout" })).toContain(
       "5초 안에 응답하지 않아",

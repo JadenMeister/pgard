@@ -257,7 +257,7 @@ describe("runDoctor Java runtime row", () => {
     const { code, row } = await run(withJava('openjdk version "17.0.21" 2026-10-21'));
     expect(code).toBe(0);
     expect(row).toBe(
-      "  [warn] Java runtime: Java 17.0.21 is listed as affected by CVE-2026-91403 (critical). Update to a fixed release from your JDK vendor; PGARD's list date: 2026-11-18. Source: https://www.oracle.com/security-alerts/alert-cve-2026-91403.html",
+      "  [warn] Java runtime: Java 17.0.21 is listed as affected by CVE-2026-91403 (critical; vendor alert 2026-10-21). Update to a fixed release from your JDK vendor; PGARD's list date: 2026-11-18. Source: https://www.oracle.com/security-alerts/alert-cve-2026-91403.html",
     );
   });
 
@@ -268,12 +268,35 @@ describe("runDoctor Java runtime row", () => {
   });
 
   it("says 'not in PGARD's list' as an [info] row and never claims safety", async () => {
-    for (const text of ['openjdk version "17.0.22"', 'openjdk version "23.0.1"']) {
+    for (const text of [
+      'openjdk version "17.0.22"',
+      'openjdk version "28.0.1"',
+      'openjdk version "27.0.2"',
+    ]) {
       const { code, row } = await run(withJava(text));
       expect(code).toBe(0);
       expect(row).toContain("[info]");
       expect(row).toContain("not in PGARD's list (list date 2026-11-18)");
       expect(row).not.toMatch(/safe|secure|not vulnerable|\[ok\]/i);
+    }
+  });
+
+  it("warns, without a neutral wording, for a release line the notice does not cover", async () => {
+    for (const text of [
+      'openjdk version "22.0.2"',
+      'openjdk version "26.0.1"',
+      'openjdk version "9.0.4"',
+      'java version "10.0.2"',
+      'java version "1.7.0_80"',
+      'java version "1.6.0_45"',
+    ]) {
+      const { code, row } = await run(withJava(text));
+      expect(code).toBe(0);
+      expect(row, text).toContain("[warn]");
+      expect(row, text).toContain("a release line the vendor notice does not cover");
+      expect(row, text).toContain("out of support; it may be affected");
+      expect(row, text).not.toContain("not in PGARD's list");
+      expect(row, text).not.toMatch(/safe|secure|not vulnerable/i);
     }
   });
 

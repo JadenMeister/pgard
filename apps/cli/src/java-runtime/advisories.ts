@@ -21,6 +21,8 @@ export interface JavaAdvisory {
   products: string;
   /** Primary sources, https only. The advisory does not name fixed versions, so none are listed. */
   sources: readonly string[];
+  /** ISO date (YYYY-MM-DD) of the vendor's alert. */
+  alertDate: string;
   /** ISO date (YYYY-MM-DD) PGARD added or last reviewed the entry. */
   listDate: string;
 }
@@ -39,11 +41,12 @@ export const JAVA_ADVISORIES: readonly JavaAdvisory[] = [
       { feature: 27, highest: "27.0.1" },
     ],
     products:
-      "Oracle Java SE 8u511, 8u511-perf, 11.0.33, 17.0.21, 21.0.13, 25.0.5, 27.0.1; Oracle GraalVM for JDK 17.0.21, 21.0.13",
+      "Oracle Java SE 8u511, 8u511-perf, 11.0.33, 17.0.21, 21.0.13, 25.0.5, 27.0.1; Oracle GraalVM for JDK 17.0.21, 21.0.13; Oracle GraalVM Enterprise Edition 21.3.20 (its own version scheme: this check reads the JDK version and does not match it)",
     sources: [
       "https://www.oracle.com/security-alerts/alert-cve-2026-91403.html",
       "https://github.com/advisories/GHSA-9h75-rf66-wh3r",
     ],
+    alertDate: "2026-10-21",
     listDate: "2026-11-18",
   },
 ];

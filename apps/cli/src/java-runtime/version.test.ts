@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { JAVA_ADVISORIES, latestListDate, type JavaAdvisory } from "./advisories.js";
 import {
   compareJavaVersions,
+  judgeJavaVersion,
   matchJavaAdvisories,
   parseJavaVersionOutput,
   parseJavaVersionToken,
@@ -146,6 +147,19 @@ describe("matchJavaAdvisories", () => {
     }
   });
 
+  it("tells a release line older than the newest listed one apart from a newer one", () => {
+    const kind = (token: string) =>
+      judgeJavaVersion(parseJavaVersionToken(token)!, JAVA_ADVISORIES).kind;
+    for (const token of ["1.6.0_45", "1.7.0_80", "9.0.4", "10.0.2", "12.0.2", "22.0.2", "26.0.1"]) {
+      expect(kind(token), token).toBe("older-line");
+    }
+    for (const token of ["28", "28.0.1", "30.1.2"]) expect(kind(token), token).toBe("not-listed");
+    // A listed line that is newer than the listed version stays neutral.
+    for (const token of ["17.0.22", "27.0.2", "1.8.0_512"])
+      expect(kind(token), token).toBe("not-listed");
+    expect(kind("17.0.21")).toBe("listed");
+  });
+
   it("compares an early-access build by its number", () => {
     expect(listedBy("17.0.22-ea")).toEqual([]);
     expect(listedBy("17.0.21-ea")).toEqual(["CVE-2026-91403"]);
@@ -172,6 +186,7 @@ describe("the shipped table", () => {
       expect(entry.sources.length).toBeGreaterThan(0);
       for (const source of entry.sources) expect(source).toMatch(/^https:\/\/[^\s]+$/);
       expect(entry.listDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(entry.alertDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(Number.isNaN(Date.parse(entry.listDate))).toBe(false);
       expect(entry.affected.length).toBeGreaterThan(0);
       for (const release of entry.affected) {
@@ -186,6 +201,8 @@ describe("the shipped table", () => {
   it("starts with CVE-2026-91403 for the six feature releases", () => {
     const entry = JAVA_ADVISORIES.find((candidate) => candidate.cve === "CVE-2026-91403");
     expect(entry?.severity).toBe("critical");
+    expect(entry?.alertDate).toBe("2026-10-21");
+    expect(entry?.products).toContain("Oracle GraalVM Enterprise Edition 21.3.20");
     expect(entry?.affected.map((release) => release.feature)).toEqual([8, 11, 17, 21, 25, 27]);
     expect(entry?.sources).toContain(
       "https://www.oracle.com/security-alerts/alert-cve-2026-91403.html",

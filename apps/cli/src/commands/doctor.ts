@@ -14,7 +14,7 @@ import { safeText } from "../ui/formatters/style.js";
 import { cliText, type CliText } from "../ui/i18n/cli-text.js";
 import { JAVA_ADVISORIES, latestListDate } from "../java-runtime/advisories.js";
 import type { JavaProbe } from "../java-runtime/probe.js";
-import { matchJavaAdvisories, parseJavaVersionOutput } from "../java-runtime/version.js";
+import { judgeJavaVersion, parseJavaVersionOutput } from "../java-runtime/version.js";
 import { localizeKeychainReason, networkHintText } from "../ui/i18n/command-text.js";
 
 /**
@@ -221,8 +221,18 @@ function describeJava(probe: JavaProbe, t: CliText): DoctorCheck[] {
     return [{ label, isOk: false, detail: text.javaUnreadable, isRequired: false }];
   }
   const shown = safeText(version.display, 40);
-  const listed = matchJavaAdvisories(version, JAVA_ADVISORIES);
-  if (listed.length === 0) {
+  const verdict = judgeJavaVersion(version, JAVA_ADVISORIES);
+  if (verdict.kind === "older-line") {
+    return [
+      {
+        label,
+        isOk: false,
+        detail: text.javaOlderLine(shown, latestListDate()),
+        isRequired: false,
+      },
+    ];
+  }
+  if (verdict.kind === "not-listed") {
     return [
       {
         label,
@@ -233,13 +243,14 @@ function describeJava(probe: JavaProbe, t: CliText): DoctorCheck[] {
       },
     ];
   }
-  return listed.map((entry) => ({
+  return verdict.entries.map((entry) => ({
     label,
     isOk: false,
     detail: text.javaListed(
       shown,
       entry.cve,
       entry.severity,
+      entry.alertDate,
       entry.listDate,
       entry.sources[0] ?? "",
     ),

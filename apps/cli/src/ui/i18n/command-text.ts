@@ -244,9 +244,11 @@ export interface CommandText {
       version: string,
       cve: string,
       severity: string,
+      alertDate: string,
       listDate: string,
       link: string,
     ) => string;
+    javaOlderLine: (version: string, listDate: string) => string;
     javaNotListed: (version: string, listDate: string) => string;
     javaUnreadable: string;
     javaNotRun: (cause: "timeout" | "access" | "error") => string;
@@ -546,8 +548,10 @@ overwritten. Saving inside the Git repository risks committing the report.`,
       `${method} available (lists can be incomplete; "Other port" is always offered)`,
     portsUnavailable: (note) => `unavailable (${note})`,
     unknownReason: "unknown reason",
-    javaListed: (version, cve, severity, listDate, link) =>
-      `Java ${version} is listed as affected by ${cve} (${severity}). Update to a fixed release from your JDK vendor; PGARD's list date: ${listDate}. Source: ${link}`,
+    javaListed: (version, cve, severity, alertDate, listDate, link) =>
+      `Java ${version} is listed as affected by ${cve} (${severity}; vendor alert ${alertDate}). Update to a fixed release from your JDK vendor; PGARD's list date: ${listDate}. Source: ${link}`,
+    javaOlderLine: (version, listDate) =>
+      `Java ${version} is a release line the vendor notice does not cover (out of support; it may be affected). Check with your JDK vendor (PGARD's list date: ${listDate})`,
     javaNotListed: (version, listDate) =>
       `Java ${version} is not in PGARD's list (list date ${listDate}); the list does not cover every issue`,
     javaUnreadable: "a Java runtime was found but its version could not be read; not judged",
@@ -848,8 +852,10 @@ Git 저장소 안에 저장하면 보고서가 커밋될 위험이 있습니다.
       `${method} 사용 가능 (목록이 불완전할 수 있으며 "다른 포트"는 항상 제공됩니다)`,
     portsUnavailable: (note) => `사용할 수 없음 (${note})`,
     unknownReason: "알 수 없는 이유",
-    javaListed: (version, cve, severity, listDate, link) =>
-      `Java ${version}은(는) ${cve}(${severity}) 영향 목록에 있습니다. JDK 제공사의 수정된 릴리스로 업데이트하세요. PGARD 목록 기준일: ${listDate}. 출처: ${link}`,
+    javaListed: (version, cve, severity, alertDate, listDate, link) =>
+      `Java ${version}은(는) ${cve}(${{ critical: "치명적", high: "높음", medium: "중간", low: "낮음" }[severity] ?? severity}; 제공사 공지 ${alertDate}) 영향 목록에 있습니다. JDK 제공사의 수정된 릴리스로 업데이트하세요. PGARD 목록 기준일: ${listDate}. 출처: ${link}`,
+    javaOlderLine: (version, listDate) =>
+      `Java ${version}은(는) 제공사 공지가 다루지 않는 오래된 릴리스 라인입니다 (지원 종료, 영향을 받을 수 있음). JDK 제공사에 확인하세요 (PGARD 목록 기준일: ${listDate})`,
     javaNotListed: (version, listDate) =>
       `Java ${version}은(는) PGARD 목록에 없습니다 (목록 기준일 ${listDate}). 이 목록이 모든 문제를 다루지는 않습니다`,
     javaUnreadable: "Java 런타임을 찾았지만 버전을 읽을 수 없어 판정하지 않았습니다",

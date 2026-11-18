@@ -128,3 +128,27 @@ export function matchJavaAdvisories(
     }),
   );
 }
+
+export type JavaVerdict =
+  | { kind: "listed"; entries: JavaAdvisory[] }
+  /** A release line the notice does not cover that is older than the newest one it does. */
+  | { kind: "older-line" }
+  | { kind: "not-listed" };
+
+/**
+ * Listed, or not. A feature release the notice does not name and that is older than the newest
+ * one it names (7, 9, 10, 12, 22 ... for this table) is out of the vendor's support window: it
+ * says nothing about it, so it must not read as a neutral "not in the list".
+ */
+export function judgeJavaVersion(
+  version: JavaVersion,
+  table: readonly JavaAdvisory[],
+): JavaVerdict {
+  const entries = matchJavaAdvisories(version, table);
+  if (entries.length > 0) return { kind: "listed", entries };
+  const isOlderLine = table.some((entry) => {
+    const features = entry.affected.map((release) => release.feature);
+    return !features.includes(version.feature) && version.feature < Math.max(...features);
+  });
+  return isOlderLine ? { kind: "older-line" } : { kind: "not-listed" };
+}
