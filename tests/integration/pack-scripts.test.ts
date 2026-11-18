@@ -146,6 +146,13 @@ describe("unverifiable module loading in bundled third-party code", () => {
     "run(require);",
     "return __require",
     "x = cond ? require : other;",
+    "const f = (x) => __require",
+    "if (!__require) bail();",
+    "yield __require;",
+    "const m = await __require;",
+    "throw require;",
+    "const o = { require };",
+    "const d = a || require;",
   ])("mutation: require used as a value is reported: %s", (code) => {
     const found = findDynamicCodeUses("a.js", module("node_modules/evil/index.js", code));
     expect(found).toEqual([expect.stringContaining("require as a value")]);
@@ -157,6 +164,9 @@ describe("unverifiable module loading in bundled third-party code", () => {
     "// a package may require a license",
     'throw new Error("you must require a login");',
     "const v = obj.require;",
+    "const r = require_foo;",
+    "const msg = `a ${x} require`;",
+    "evaluate(1);",
     "const cfg = { require: true };",
   ])("a call, a property or prose is not a value use: %s", (code) => {
     expect(findDynamicCodeUses("a.js", module("node_modules/x/index.js", code))).toEqual([]);
@@ -170,6 +180,26 @@ describe("unverifiable module loading in bundled third-party code", () => {
   ])("mutation: plain and underscored require members are reported: %s", (code) => {
     const found = findDynamicCodeUses("a.js", module("node_modules/evil/index.js", code));
     expect(found).toEqual([expect.stringContaining("require.cache/resolve")]);
+  });
+
+  it.each(['eval("require")(p);', "const r = eval (code);", "x = (0, eval)(code)"])(
+    "mutation: eval of a string is reported: %s",
+    (code) => {
+      const found = findDynamicCodeUses("a.js", module("node_modules/evil/index.js", code));
+      expect(found).toEqual([expect.stringContaining("uses eval")]);
+    },
+  );
+
+  it("the esbuild shim is accepted whatever its parameters are called", () => {
+    const shim = [
+      'var __require = /* @__PURE__ */ ((y) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(y, {',
+      '  get: (p, q) => (typeof require !== "undefined" ? require : p)[q]',
+      "}) : y)(function(y) {",
+      '  if (typeof require !== "undefined") return require.apply(this, arguments);',
+      "});",
+    ].join("\n");
+    expect(findDynamicCodeUses("a.js", shim)).toEqual([]);
+    expect(findDynamicCodeUses("a.js", `${shim}\nconst l = __require;`)).toHaveLength(1);
   });
 
   it("a string that looks like dynamic code is reported until it is allowed by exact line", () => {

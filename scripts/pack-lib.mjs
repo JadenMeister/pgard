@@ -87,12 +87,12 @@ export const ALLOWED_DYNAMIC_USES = [
   // the banner's `require`; the specifier is still checked at each call site and in the metafile.
   {
     module: "",
-    line: /^var __require = \/\* @__PURE__ \*\/ \(\(x\) => typeof require !== "undefined" \? require : typeof Proxy !== "undefined" \? new Proxy\(x, \{$/,
+    line: /^var __require = \/\* @__PURE__ \*\/ \(\(\w+\) => typeof require !== "undefined" \? require : typeof Proxy !== "undefined" \? new Proxy\(\w+, \{$/,
     why: "esbuild's __require shim picks the banner's require; it loads nothing by itself",
   },
   {
     module: "",
-    line: /^\s*get: \(a, b\) => \(typeof require !== "undefined" \? require : a\)\[b\]$/,
+    line: /^\s*get: \(\w+, \w+\) => \(typeof require !== "undefined" \? require : \w+\)\[\w+\]$/,
     why: "part of esbuild's __require shim",
   },
   {
@@ -206,6 +206,11 @@ export const ALLOWED_DYNAMIC_USES = [
   },
   {
     module: "@vue/compiler-sfc/dist/compiler-sfc.cjs.js",
+    line: /^\s*tmpl\.eval\(options, function\(str2\) \{$/,
+    why: "a method named eval of the jazz template engine (consolidate); it runs a compiled template and parse() never reaches the template renderers",
+  },
+  {
+    module: "@vue/compiler-sfc/dist/compiler-sfc.cjs.js",
     line: /^\s*selector: `:import\(\$\{path2\}\)`,$/,
     why: "CSS modules ':import()' selector text, a string",
   },
@@ -255,11 +260,19 @@ export function findDynamicCodeUses(file, code, allowed = ALLOWED_DYNAMIC_USES) 
     if (/\b(?:__)?require\./.test(text)) report("uses require.cache/resolve");
     // `require` as a value (aliased, passed on or returned) hides the specifier of a later call.
     // Matched by its position, not by the word, so prose in strings and comments ("require a
-    // license") does not hit: an operand after `= ( , [ ? : | & return`, ended by `; , ) ] } ? : | &`
-    // or the end of the line. A call, a member access and `typeof require` do not match.
-    if (/(?:[=(,[?:|&]|\breturn)\s*(?:__)?require\s*(?:[;,)\]}?:|&]|$)/.test(text)) {
+    // license") does not hit: an operand after `= > ( , [ ? : | & ! ~ +` or `return yield await throw`, ended by
+    // `; , ) ] } ? | &` or the end of the line; also `cond ? require : x` and `{ require }`.
+    // A call, a member access, an object key (`require:`) and `typeof require` do not match.
+    const asValue = [
+      /(?:[=>(,[?:|&!~+]|\b(?:return|yield|await|throw))\s*(?:__)?require\s*(?:[;,)\]}?|&]|$)/,
+      /\?\s*(?:__)?require\s*:/,
+      /\{\s*(?:__)?require\s*[,}]/,
+    ];
+    if (asValue.some((pattern) => pattern.test(text))) {
       report("uses require as a value (aliased or passed on)");
     }
+    // eval runs a string as code, so no specifier or path in it can be checked.
+    if (/\beval\s*\(|(?:[=(,|&?:]|\breturn)\s*eval\s*(?:[;,)]|$)/.test(text)) report("uses eval");
     if (/\b__(?:dirname|filename)\b|\bimport\.meta\b/.test(text)) {
       // PGARD's own modules (packages/..., apps/...) are covered by the asset rewrites and smoke test.
       if (owner.startsWith("node_modules/")) {
