@@ -301,6 +301,38 @@ describe("loadTrend", () => {
     }
   });
 
+  it("reports older files it never opened when many newer files are unusable", async () => {
+    await save("a", ["x"]);
+    const repoDir = path.join(base, "pgard", "repos", String(REPO_ID));
+    // 101 corrupt files newer than the one good scan: the read stops after 100 files, 2 are left.
+    for (let i = 0; i < 101; i += 1) {
+      const name = `${String(NOW + i).padStart(13, "0")}-${String(i).padStart(16, "0")}.json`;
+      await writeFile(path.join(repoDir, name), "{ not json");
+    }
+    const trend = await loadTrend(context(), outcome, false);
+    expect(trend).toMatchObject({ kind: "unavailable", why: "unreadable", unread: 2 });
+  });
+
+  it("reports no unread files when 20 scans were found or when everything was opened", async () => {
+    for (let i = 0; i < 3; i += 1) await save(`s${i}`, ["x"]);
+    const trend = await loadTrend(context(), outcome, false);
+    expect(trend).toMatchObject({ kind: "ready", unread: 0 });
+    const real = await store.list(REPO_ID);
+    const full = {
+      list: async () => ({
+        ...real,
+        scans: Array.from({ length: 20 }, () => real.scans[0]),
+        unread: 5,
+      }),
+    } as unknown as ResultStore;
+    const capped = await loadTrend(
+      context({}, () => full),
+      outcome,
+      false,
+    );
+    expect(capped).toMatchObject({ kind: "ready", unread: 0 });
+  });
+
   it("reports corrupt files: only-corrupt is unreadable, mixed is skipped", async () => {
     await save("a", ["x"]);
     const repoDir = path.join(base, "pgard", "repos", String(REPO_ID));

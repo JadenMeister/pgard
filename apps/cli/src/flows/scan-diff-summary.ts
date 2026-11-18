@@ -33,15 +33,21 @@ export interface PreviousScan {
  * Newest stored scan of this repository to compare against. Everything goes through the store's
  * `list`, which reads each file with a size cap and `readScanResult`. A file written by a newer
  * minor schema is skipped with a warning (this version might misread it). The result is only ever
- * compared, never used to authorize anything.
+ * compared, never used to authorize anything. A stored scan dated after `currentAtMs` (the
+ * time of this scan; a skewed clock) is skipped with a warning, so the summary compares
+ * with the same scan as the trend panel does.
  */
 export async function findPreviousScan(
   store: ResultStore,
   repositoryId: number,
   currentScanId: string,
+  currentAtMs: number | null = null,
 ): Promise<PreviousScan> {
   const found = await store.findNewest(repositoryId, (scan) => {
     if (scan.result.scanId === currentScanId) return "it is the scan being compared.";
+    if (currentAtMs !== null && scan.savedAt.getTime() > currentAtMs) {
+      return "it is dated after this scan (is the clock set right?).";
+    }
     if (isNewerMinor(scan.sourceVersion)) {
       return `it uses schema version ${safeText(scan.sourceVersion, 12)}, newer than this PGARD understands.`;
     }

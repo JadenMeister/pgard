@@ -58,7 +58,9 @@ export async function loadPreviousScan(
 ): Promise<PreviousScan | null> {
   const target = storeFor(context, result, outcome, noStoreFlag);
   if (target === null) return null;
-  return findPreviousScan(target.store, target.repositoryId, result.scanId).catch(() => null);
+  return findPreviousScan(target.store, target.repositoryId, result.scanId, Date.now()).catch(
+    () => null,
+  );
 }
 
 /** The comparison for the summary block; `null` without an earlier scan or when it fails. */
@@ -110,7 +112,7 @@ export async function storeScanResult(
     // Read the previous scan before saving, so "previous" can never be this scan.
     const previous =
       preloaded === undefined
-        ? await findPreviousScan(store, repositoryId, result.scanId).catch(() => null)
+        ? await findPreviousScan(store, repositoryId, result.scanId, Date.now()).catch(() => null)
         : preloaded;
     const saved = await store.save(result, { repositoryId, forbidSubstrings, incrementalState });
     if (saved.ok) {

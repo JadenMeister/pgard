@@ -307,6 +307,8 @@ export interface TrendPanelText {
   notStored: string;
   /** Stored scans written by a newer PGARD version are left out. */
   newerSkipped: (count: number) => string;
+  /** Older stored files were not opened, so the history may be incomplete. */
+  unread: (count: number) => string;
   chartTitle: string;
   /** Legend of the bar characters: `symbols` in the severity order, then the severity names. */
   legend: (pairs: string) => string;
@@ -695,6 +697,8 @@ const EN: CliText = {
       latestVsPrevious: "Latest scan vs the previous one",
       newestStored: "The two newest stored scans",
       notStored: "This scan was not stored.",
+      unread: (count) =>
+        `${count} older stored ${count === 1 ? "file was" : "files were"} not opened (the read stops after a limited number of files), so this history may be incomplete.`,
       newerSkipped: (count) =>
         `${count} ${count === 1 ? "scan" : "scans"} from a newer PGARD version ${count === 1 ? "was" : "were"} skipped.`,
       chartTitle: "Active findings per scan (newest first)",
@@ -1110,6 +1114,8 @@ const KO: CliText = {
       latestVsPrevious: "최근 검사와 직전 검사 비교",
       newestStored: "저장된 최근 두 검사 비교",
       notStored: "이 검사는 저장되지 않았습니다.",
+      unread: (count) =>
+        `오래된 저장 파일 ${count}개는 열어 보지 않았습니다(한 번에 읽는 파일 수에 한도가 있습니다). 이 기록은 일부가 빠졌을 수 있습니다.`,
       newerSkipped: (count) => `더 새로운 PGARD 버전에서 만든 검사 ${count}건을 건너뛰었습니다.`,
       chartTitle: "검사별 활성 발견 항목 (최신순)",
       legend: (pairs) => `범례: ${pairs}`,

@@ -381,6 +381,27 @@ describe("comparison with the previous stored scan", () => {
     expect((await findPreviousScan(store, REPO_ID, "other")).scan?.result.scanId).toBe("scan-10");
   });
 
+  it("ignores a stored scan dated after the current one, like the trend panel does", async () => {
+    let clock = 1_800_000_000_000;
+    const timed = createResultStore({ dir: path.join(base, "skew"), now: () => (clock += 1000) });
+    for (const line of [10, 20]) {
+      expect((await timed.save(moved(line), { repositoryId: REPO_ID })).ok).toBe(true);
+    }
+    clock = 1_800_000_000_000 + 86_400_000;
+    expect((await timed.save(moved(30), { repositoryId: REPO_ID })).ok).toBe(true);
+    const now = 1_800_000_000_000 + 3_600_000;
+    const found = await findPreviousScan(timed, REPO_ID, "other", now);
+    expect(found.scan?.result.scanId).toBe("scan-20");
+    expect(found.warnings).toEqual([expect.stringContaining("dated after this scan")]);
+    // Without a reference time nothing is skipped (older callers).
+    expect((await findPreviousScan(timed, REPO_ID, "other")).scan?.result.scanId).toBe("scan-30");
+    // A scan saved just before "now" is still a valid previous scan.
+    expect(
+      (await findPreviousScan(timed, REPO_ID, "other", 1_800_000_000_000 + 86_400_000 + 5000)).scan
+        ?.result.scanId,
+    ).toBe("scan-30");
+  });
+
   it("writes the summary to stderr, not stdout, when told the output is JSON", async () => {
     await run(depsWith(ALLOWED_OUTCOME, moved(10)));
     const captured = createTestIo();
