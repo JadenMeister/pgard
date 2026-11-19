@@ -29,12 +29,14 @@ export type Expr = Base &
     | { k: "array"; elems: Expr[] }
     | ({ k: "lambda" } & LambdaBody)
     /** Anything else; `spread` marks a Kotlin `*array` argument. */
-    | { k: "other"; kids: Expr[]; spread?: boolean }
+    | { k: "other"; kids: Expr[]; spread?: boolean; anonFun?: boolean }
   );
 
 export interface LambdaBody {
   params: string[];
   body: Stmt[];
+  /** Kotlin explicit label (`run outer@{ ... }`): the only label a jump can use to leave this lambda. */
+  label?: string;
 }
 export type LambdaExpr = Extract<Expr, { k: "lambda" }>;
 
@@ -62,9 +64,20 @@ export type Stmt = Base &
         body: Stmt[];
       }
     /** Statements run in order in their own scope (blocks, try bodies, resources). */
-    | { s: "block"; body: Stmt[]; params: string[] }
+    | {
+        s: "block";
+        body: Stmt[];
+        params: string[];
+        /** The body of a `try` that has a `catch`: a `throw` inside it may be caught. */
+        caught?: boolean;
+      }
     /** Alternatives of which some run (switch/when arms, catch clauses). */
-    | { s: "arms"; subject: Expr | null; arms: Array<{ params: string[]; body: Stmt[] }> }
+    | {
+        s: "arms";
+        subject: Expr | null;
+        /** `always`: a `finally` block, which runs whatever the `try` does. */
+        arms: Array<{ params: string[]; body: Stmt[]; always?: boolean }>;
+      }
     /** `ret`: a return (the value is what the method gives back), not a throw, break or continue. */
     | {
         s: "exit";

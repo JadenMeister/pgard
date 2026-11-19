@@ -4,6 +4,11 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Changed
+
+- Java and Kotlin `PG-CSRF-001` (#367): a `throw` that no `try`/`catch` of the chain method catches (in a method nothing else in the file calls) no longer makes the code after it conditional, and a `finally` block counts as always run, so a CSRF disable after such a guard or in `finally` is now reported at medium instead of low. The same change can silence a finding: a STATELESS policy with default bearer handling set after such a guard is now seen as set, so a CSRF disable there is not reported (as without the guard). A Kotlin lambda with an explicit label (`run outer@{ return@outer }`) and a bare `return` in an anonymous `fun() { }` end only that lambda or function. A `return`, a `throw` in a lambda or a helper, and a `throw` in a `try` with a `catch` still make the rest conditional (low). Finding counts can rise and fall.
+- Java and Kotlin `PG-SQL-005`: the work done inside loops is capped per file (#286). A file with very many long variable chains in loops, which could take about 10 s, now takes about 1 s; past the cap each loop is walked once, and a loop that was still changing makes the file `partial` (never "safe"). Ordinary files are not affected.
+
 ## [0.4.0] - 2026-11-18
 
 ### Added

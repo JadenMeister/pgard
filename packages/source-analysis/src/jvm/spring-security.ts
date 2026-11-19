@@ -14,6 +14,7 @@ import {
   type CallExpr,
   type ConfigFinding,
 } from "./config-util.js";
+import { walkUnit } from "./ir-walk.js";
 
 /**
  * PG-CSRF-001 and PG-CONF-001 for Spring Security configuration in Java and Kotlin:
@@ -219,8 +220,19 @@ export function analyzeSpringSecurity(unit: Unit): SpringSecurityAnalysis {
       });
     }
     const roots = chainMethods.filter((method) => !helperNames.has(method.name));
+    // Every name the file calls or refers to: a chain method that something else in the file uses
+    // may be called inside a `try`, so a `throw` in it is not known to abort the configuration.
+    const used = new Set<string>();
+    walkUnit(
+      unit,
+      (expr) => {
+        if (expr.k === "call" || expr.k === "member" || expr.k === "id") used.add(expr.name);
+      },
+      () => {},
+    );
     for (const method of roots.length > 0 ? roots : chainMethods) {
-      judgeChain(unit, method, byName, findings, unsupported, httpParamOf);
+      const abortOk = !used.has(method.name) && (byName.get(method.name)?.length ?? 0) === 1;
+      judgeChain(unit, method, byName, findings, unsupported, httpParamOf, abortOk);
     }
     // `web.ignoring()` and catch-all rules are read in every method body (a WebSecurityCustomizer
     // bean is not a chain method).
@@ -259,6 +271,7 @@ function judgeChain(
   findings: ConfigFinding[],
   unsupported: Set<string>,
   httpParamOf: (method: MethodInfo) => string | null,
+  abortOk: boolean,
 ): void {
   const facts = emptyFacts();
   const calls: Array<{
@@ -338,7 +351,9 @@ function judgeChain(
         }
       },
       undefined,
-      { exits: true },
+      // An uncaught `throw` in the chain method itself aborts the configuration (the code after it
+      // runs in every configuration that completes); in a helper the caller may catch it.
+      { exits: true, abortingThrows: abortOk && depth === 0 },
     );
   };
   collect(method, 0);
