@@ -127,6 +127,8 @@ export interface RedirectRootContext {
   env: Readonly<Record<string, string | undefined>>;
   homeDir: string;
   uid: number | undefined;
+  /** The user's primary group; defaults to `process.getgid()`. */
+  gid?: number | undefined;
   /** The OS temp folder (`os.tmpdir()`); injected in tests. */
   tmpDir?: string;
 }
@@ -151,12 +153,19 @@ async function isPrivateDirectory(dir: string, uid: number | undefined): Promise
  * else can write to, or a link whose target is such a directory. A link into a shared
  * folder (world-writable) could send the browser to another user's file, so it is refused.
  */
-async function isTrustedParent(dir: string, uid: number | undefined): Promise<boolean> {
+async function isTrustedParent(
+  dir: string,
+  uid: number | undefined,
+  gid: number | undefined,
+): Promise<boolean> {
   try {
     const link = await lstat(dir);
     const stats = link.isSymbolicLink() ? await stat(dir) : link;
-    const isOurs = (value: { uid: number; mode: number }): boolean =>
-      (uid === undefined || value.uid === uid) && (value.mode & 0o022) === 0;
+    // Group-write is fine when the group is our own primary group (private-group umask 002).
+    const isOurs = (value: { uid: number; gid: number; mode: number }): boolean =>
+      (uid === undefined || value.uid === uid) &&
+      (value.mode & 0o002) === 0 &&
+      ((value.mode & 0o020) === 0 || (gid !== undefined && value.gid === gid));
     if (!stats.isDirectory() || !isOurs(stats)) return false;
     if (!link.isSymbolicLink()) return true;
     // A link: the folder that holds its target must not let others rename or replace it
@@ -183,6 +192,7 @@ export async function redirectRoot(
   },
 ): Promise<string> {
   const { platform, env, homeDir, uid } = context;
+  const gid = "gid" in context ? context.gid : process.getgid?.();
   if (platform === "darwin") return os.tmpdir();
   if (platform === "win32") {
     // #430: the one-time link must never be written to a network share (a UNC `TEMP`).
@@ -197,13 +207,21 @@ export async function redirectRoot(
   if (path.isAbsolute(runtime) && (await isPrivateDirectory(runtime, uid))) return runtime;
   if (!path.isAbsolute(homeDir))
     throw new RedirectFileError("No home folder for the redirect file.");
+  // One component at a time: each parent is checked before the next one is created in it, so
+  // nothing is created inside a shared folder that a link points to (#430).
   const cache = path.join(homeDir, ".cache", "pgard", "open");
-  await mkdir(cache, { recursive: true, mode: 0o700 }).catch(() => undefined);
-  const trusted =
-    (await isTrustedParent(path.join(homeDir, ".cache"), uid)) &&
-    (await isTrustedParent(path.join(homeDir, ".cache", "pgard"), uid));
-  if (!trusted || !(await isPrivateDirectory(cache, uid))) {
-    throw new RedirectFileError("The redirect folder is not private.");
+  const notPrivate = new RedirectFileError("The redirect folder is not private.");
+  let current = homeDir;
+  for (const name of [".cache", "pgard", "open"]) {
+    current = path.join(current, name);
+    if ((await lstat(current).catch(() => null)) === null) {
+      await mkdir(current, { mode: 0o700 }).catch(() => undefined);
+    }
+    const isLast = name === "open";
+    const isOk = isLast
+      ? await isPrivateDirectory(current, uid)
+      : await isTrustedParent(current, uid, gid);
+    if (!isOk) throw notPrivate;
   }
   return cache;
 }
@@ -227,8 +245,10 @@ export function isOurRedirectFile(
   const paths = platform === "win32" ? path.win32 : path.posix;
   if (!paths.isAbsolute(filePath) || paths.normalize(filePath) !== filePath) return false;
   if (!/^[\p{L}\p{N}\p{M} _.~:/\\()-]+$/u.test(filePath)) return false;
-  // #430: modifier letters (U+02BA, U+02EE) best-fit to a double quote in some code pages.
-  if (/\p{Lm}/u.test(filePath)) return false;
+  // #430: modifier letters that a legacy code page best-fits to a quote or backtick (U+02B9 to
+  // U+02BC, U+02C8, U+02CA, U+02CB, U+02EE). Other modifier letters stay: Japanese names use
+  // U+3005 and U+30FC.
+  if (/[ʹ-ʼˈˊˋˮ]/u.test(filePath)) return false;
   return (
     paths.dirname(filePath) === redirectDir &&
     paths.basename(filePath) === REDIRECT_FILE_NAME &&

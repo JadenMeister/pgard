@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { createReadStream, createWriteStream } from "node:fs";
+import { createReadStream, createWriteStream, type BigIntStats } from "node:fs";
 import { once } from "node:events";
 import {
   link,
@@ -190,6 +190,16 @@ export interface LockHooks {
   link?: typeof link;
 }
 
+type LockIdentity = BigIntStats;
+
+function lockIdentity(lockPath: string): Promise<LockIdentity> {
+  return stat(lockPath, { bigint: true });
+}
+
+function sameLock(a: LockIdentity, b: LockIdentity): boolean {
+  return a.dev === b.dev && a.ino === b.ino && a.mtimeNs === b.mtimeNs;
+}
+
 /** Creates the lock exclusively (`wx`); a failed write removes it again so it never lingers empty. */
 async function createLockDirectly(lockPath: string, content: string): Promise<void> {
   const handle = await open(lockPath, "wx", 0o600); // EEXIST: someone else holds it
@@ -243,9 +253,11 @@ export async function acquireUpdateLock(
     }
     let heldText: string;
     let ageMs: number;
+    let judged: LockIdentity;
     try {
       heldText = await readFile(lockPath, "utf8");
-      ageMs = now() - (await stat(lockPath)).mtimeMs;
+      judged = await lockIdentity(lockPath);
+      ageMs = now() - Number(judged.mtimeMs);
     } catch {
       continue; // released between the calls: try again
     }
@@ -269,8 +281,14 @@ export async function acquireUpdateLock(
       continue;
     }
     try {
+      // Still the very file judged stale: same text, same identity (device, inode) and same
+      // modification time, so a lock another run created in between (also an empty one it has
+      // not written its pid into yet) is never removed.
       const current = await readFile(lockPath, "utf8").catch(() => null);
-      if (current === heldText) await rm(lockPath, { force: true });
+      const after = await lockIdentity(lockPath).catch(() => null);
+      if (current === heldText && after !== null && sameLock(judged, after)) {
+        await rm(lockPath, { force: true });
+      }
     } finally {
       await rm(marker, { force: true });
     }

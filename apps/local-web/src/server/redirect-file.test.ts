@@ -142,3 +142,40 @@ describe.skipIf(process.platform === "win32")("bindRedirectCleanup", () => {
     await cleanup.onStop();
   });
 });
+
+describe("isOurRedirectFile names and quote look-alikes (#430)", () => {
+  const check = (parent: string, platform: NodeJS.Platform = "linux"): boolean => {
+    const sep = platform === "win32" ? "\\" : "/";
+    const root = `${parent}${sep}open`;
+    const dir = `${root}${sep}pgard-open-abc123`;
+    return isOurRedirectFile(`${dir}${sep}${REDIRECT_FILE_NAME}`, dir, platform, root);
+  };
+
+  it("accepts Korean, Japanese, accented and plain names", () => {
+    expect(check("/home/plain")).toBe(true);
+    expect(check("/home/\uae40\ucca0\uc218")).toBe(true);
+    expect(check("/home/\u4f50\u3005\u6728")).toBe(true); // U+3005
+    expect(check("/home/\u30e6\u30fc\u30b6\u30fc")).toBe(true); // U+30FC
+    expect(check("/home/Ren\u00e9 Mu\u00f1oz")).toBe(true);
+    expect(check("C:\\Users\\\u4f50\u3005\u6728", "win32")).toBe(true);
+  });
+
+  it("refuses modifier letters and marks that best-fit to a quote or backtick", () => {
+    for (const mark of [
+      "\u02b9",
+      "\u02ba",
+      "\u02bb",
+      "\u02bc",
+      "\u02c8",
+      "\u02ca",
+      "\u02cb",
+      "\u02ee",
+      "\uff02",
+      '"',
+      "'",
+      "`",
+    ]) {
+      expect(check(`/home/u${mark}x`)).toBe(false);
+    }
+  });
+});

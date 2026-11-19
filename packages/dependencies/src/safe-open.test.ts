@@ -68,6 +68,22 @@ describe("openRegularFileNoFollow", () => {
   );
 
   it.skipIf(process.platform === "win32")(
+    "a different regular file swapped in is refused even with O_NOFOLLOW",
+    async () => {
+      const dir = scratch();
+      const file = path.join(dir, "go.sum");
+      writeFileSync(file, "inspected");
+      const swapped = await openRegularFileNoFollow(file, {
+        afterInspect: async () => {
+          await rename(file, path.join(dir, "moved"));
+          writeFileSync(file, "replacement");
+        },
+      });
+      expect(swapped).toBeNull();
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
     "a different regular file swapped in is refused where O_NOFOLLOW is missing",
     async () => {
       const dir = scratch();

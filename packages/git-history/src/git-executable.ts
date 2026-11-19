@@ -108,8 +108,42 @@ export function trustedPathEntries(pathValue: string): string[] {
  * Elsewhere the working directory is not searched, so plain `"git"` is returned.
  */
 export function resolveGitExecutable(options: GitExecutableOptions = {}): string | null {
+  return resolveGitDetailed(options).program;
+}
+
+export interface GitResolution {
+  program: string | null;
+  /** A `git.exe` exists on PATH, but only inside the scanned folder or its repository. */
+  isOnlyInsideRepository: boolean;
+}
+
+/** One resolution per process, folder and PATH: it reads the file system for every PATH entry. */
+const resolutionCache = new Map<string, GitResolution>();
+
+/** `resolveGitExecutable`, also saying why nothing was found. Real lookups are cached. */
+export function resolveGitDetailed(options: GitExecutableOptions = {}): GitResolution {
   const platform = options.platform ?? process.platform;
-  if (platform !== "win32") return "git";
+  if (platform !== "win32") return { program: "git", isOnlyInsideRepository: false };
+  const isInjected =
+    options.platform !== undefined ||
+    options.env !== undefined ||
+    options.isFile !== undefined ||
+    options.realPath !== undefined ||
+    options.hasGitEntry !== undefined ||
+    options.processCwd !== undefined;
+  if (isInjected) return lookUp(options);
+  const env = process.env;
+  const key = `${options.cwd ?? ""}\0${process.cwd()}\0${env.Path ?? env.PATH ?? env.path ?? ""}`;
+  let found = resolutionCache.get(key);
+  if (found === undefined) {
+    found = lookUp(options);
+    resolutionCache.set(key, found);
+  }
+  return found;
+}
+
+function lookUp(options: GitExecutableOptions): GitResolution {
+  let isOnlyInsideRepository = false;
   const env = options.env ?? process.env;
   const pathValue = env.Path ?? env.PATH ?? env.path ?? "";
   const isFile = options.isFile ?? defaultIsFile;
@@ -124,9 +158,12 @@ export function resolveGitExecutable(options: GitExecutableOptions = {}): string
   const excluded = bases.flatMap((base) => spellings(base, realPath));
   for (const directory of trustedPathEntries(pathValue)) {
     const entries = spellings(directory, realPath);
-    if (entries.some((entry) => excluded.some((base) => isSameOrInside(entry, base)))) continue;
     const candidate = win.join(directory, "git.exe");
-    if (isFile(candidate)) return candidate;
+    if (entries.some((entry) => excluded.some((base) => isSameOrInside(entry, base)))) {
+      if (isFile(candidate)) isOnlyInsideRepository = true;
+      continue;
+    }
+    if (isFile(candidate)) return { program: candidate, isOnlyInsideRepository: false };
   }
-  return null;
+  return { program: null, isOnlyInsideRepository };
 }

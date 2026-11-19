@@ -31,7 +31,8 @@ export async function openRegularFileNoFollow(
     );
     const opened = await handle.stat({ bigint: true });
     if (!opened.isFile()) throw new Error("not a regular file");
-    if (noFollow === undefined && (opened.dev !== inspected.dev || opened.ino !== inspected.ino)) {
+    // Always, not only without O_NOFOLLOW: the handle must be the very file that was inspected.
+    if (opened.dev !== inspected.dev || opened.ino !== inspected.ino) {
       throw new Error("changed while opening");
     }
     return handle;

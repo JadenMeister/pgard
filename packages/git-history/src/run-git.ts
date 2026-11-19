@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
-import { resolveGitExecutable } from "./git-executable.js";
+import { resolveGitDetailed } from "./git-executable.js";
 
 export interface GitRunOptions {
   cwd: string;
@@ -391,9 +391,17 @@ function execGit(args: readonly string[], options: GitRunOptions): Promise<strin
       return;
     }
     // An absolute path on Windows, so a `git.exe` inside the scanned repository never runs.
-    const gitProgram = resolveGitExecutable({ cwd: options.cwd });
+    const resolution = resolveGitDetailed({ cwd: options.cwd });
+    const gitProgram = resolution.program;
     if (gitProgram === null) {
-      reject(new GitCommandError("git could not be started", null));
+      reject(
+        new GitCommandError(
+          resolution.isOnlyInsideRepository
+            ? "git could not be started: the only git on PATH is inside the scanned folder or its repository, so it was not run. Install git for all users (not inside the repository), or run pgard from inside the repository."
+            : "git could not be started",
+          null,
+        ),
+      );
       return;
     }
     const child = spawn(gitProgram, [...args], {
@@ -504,7 +512,7 @@ export async function readDriverOverrides(cwd: string): Promise<string[]> {
   return [...overrides].flatMap((override) => ["-c", override]);
 }
 
-/** Default runner backed by `child_process.spawn(<resolved git>, [...], { shell: false })`; on Windows the program is an absolute `git.exe` from `resolveGitExecutable`, on other systems plain `git`. */
+/** Default runner backed by `child_process.spawn(<resolved git>, [...], { shell: false })`; on Windows the program is an absolute `git.exe` from `resolveGitDetailed`, on other systems plain `git`. */
 export const runGit: GitRunner = async (invocation, options) => {
   if (
     options.indexFile !== undefined &&

@@ -3,7 +3,7 @@ import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { resolveGitExecutable, trustedPathEntries } from "./git-executable.js";
+import { resolveGitDetailed, resolveGitExecutable, trustedPathEntries } from "./git-executable.js";
 import { findGitRoot } from "./git-root.js";
 import { buildGitEnv, runGit } from "./run-git.js";
 import { createGitFixture, type GitFixture } from "./test-support/git-fixture.js";
@@ -82,6 +82,25 @@ describe("resolveGitExecutable", () => {
         processCwd: "C:\\z",
       }),
     ).toBeNull();
+  });
+
+  it("says when the only git on PATH was inside the repository (and not otherwise)", () => {
+    const options = {
+      platform: "win32",
+      processCwd: "C:\\elsewhere",
+      isFile: (file: string) => file === "C:\\work\\repo\\tools\\git.exe",
+      realPath: (value: string): string => value,
+      hasGitEntry: () => false,
+      cwd: "C:\\work\\repo",
+    } as const;
+    expect(resolveGitDetailed({ ...options, env: { Path: "C:\\work\\repo\\tools" } })).toEqual({
+      program: null,
+      isOnlyInsideRepository: true,
+    });
+    expect(resolveGitDetailed({ ...options, env: { Path: "C:\\nothing" } })).toEqual({
+      program: null,
+      isOnlyInsideRepository: false,
+    });
   });
 
   describe("hostile spellings of a PATH entry (#211)", () => {

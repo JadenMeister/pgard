@@ -821,6 +821,27 @@ describe("update lock without hard links and leftover temp files (#214)", () => 
     expect(await readdir(osv)).toEqual([]);
   });
 
+  it("never deletes a fresh empty lock another run created after this one judged the old one stale", async () => {
+    const { mkdir, utimes, writeFile: write } = await import("node:fs/promises");
+    const osv = osvDataDir(dir);
+    await mkdir(osv, { recursive: true });
+    const lock = path.join(osv, ".update.lock");
+    await write(lock, "");
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    await utimes(lock, old, old);
+    await expect(
+      acquireUpdateLock(osv, Date.now, {
+        link: noLink("EPERM"),
+        afterJudgedStale: async () => {
+          // Run A took the stale lock over and created its own, not yet holding its pid.
+          await rm(lock);
+          await write(lock, "");
+        },
+      }),
+    ).rejects.toThrow(/already running/);
+    expect(await readFile(lock, "utf8")).toBe("");
+  });
+
   it("a stale lock from a dead process is still replaced without hard links", async () => {
     const { mkdir, writeFile: write } = await import("node:fs/promises");
     const osv = osvDataDir(dir);
