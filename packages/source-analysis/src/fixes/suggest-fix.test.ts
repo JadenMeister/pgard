@@ -198,6 +198,36 @@ describe("PG-COOKIE-001 Spring configuration", () => {
   });
 });
 
+describe("follow-ups (#410)", () => {
+  it("gives a tab-separated .properties line context_not_supported, not sensitive_text", () => {
+    for (const line of [
+      "server.servlet.session.cookie.secure\tfalse",
+      "server.servlet.session.cookie.secure=\tfalse",
+      "server.servlet.session.cookie.secure\t=false",
+    ]) {
+      expect(spring("Secure", line, "application.properties")).toMatchObject({
+        kind: "guidance",
+        reason: "context_not_supported",
+      });
+    }
+    expect(
+      spring("Secure", "server.servlet.session.cookie.secure=false", "application.properties")
+        ?.kind,
+    ).toBe("diff");
+  });
+
+  it("does not take an import inside a block comment as the single-type import", () => {
+    const body = "    new Random().nextBytes(salt);";
+    const withImport = (imports: string) =>
+      ["// corpus", imports, "class A {", body, "}"].join("\n");
+    const flagged = (text: string) => random(text, text.split("\n").indexOf(body) + 1);
+    expect(flagged(withImport("/*\nimport java.util.Random;\n*/"))?.kind).toBe("guidance");
+    expect(flagged(withImport("/* import java.util.Random; */"))?.kind).toBe("guidance");
+    expect(flagged(withImport("/* unclosed\nimport java.util.Random;"))?.kind).toBe("guidance");
+    expect(flagged(withImport("/* note */\nimport java.util.Random;"))?.kind).toBe("diff");
+  });
+});
+
 describe("PG-CRYPTO-003 java.util.Random", () => {
   const javaFile = (body: string, imports = "import java.util.Random;") =>
     ["// corpus", imports, "class A {", body, "}"].join("\n");

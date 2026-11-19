@@ -1,5 +1,5 @@
 import { constants, rmSync } from "node:fs";
-import { chmod, lstat, mkdir, mkdtemp, open, rm } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, open, realpath, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { windowsPathProblem } from "@pgard/result-store";
@@ -127,6 +127,8 @@ export interface RedirectRootContext {
   env: Readonly<Record<string, string | undefined>>;
   homeDir: string;
   uid: number | undefined;
+  /** The user's primary group; defaults to `process.getgid()`. */
+  gid?: number | undefined;
   /** The OS temp folder (`os.tmpdir()`); injected in tests. */
   tmpDir?: string;
 }
@@ -147,6 +149,35 @@ async function isPrivateDirectory(dir: string, uid: number | undefined): Promise
 }
 
 /**
+ * A parent folder on the way to the cache folder (#430): a real directory of ours that nobody
+ * else can write to, or a link whose target is such a directory. A link into a shared
+ * folder (world-writable) could send the browser to another user's file, so it is refused.
+ */
+async function isTrustedParent(
+  dir: string,
+  uid: number | undefined,
+  gid: number | undefined,
+): Promise<boolean> {
+  try {
+    const link = await lstat(dir);
+    const stats = link.isSymbolicLink() ? await stat(dir) : link;
+    // Group-write is fine when the group is our own primary group (private-group umask 002).
+    const isOurs = (value: { uid: number; gid: number; mode: number }): boolean =>
+      (uid === undefined || value.uid === uid) &&
+      (value.mode & 0o002) === 0 &&
+      ((value.mode & 0o020) === 0 || (gid !== undefined && value.gid === gid));
+    if (!stats.isDirectory() || !isOurs(stats)) return false;
+    if (!link.isSymbolicLink()) return true;
+    // A link: the folder that holds its target must not let others rename or replace it
+    // (a sticky bit is enough).
+    const holder = await stat(path.dirname(await realpath(dir)));
+    return holder.isDirectory() && ((holder.mode & 0o022) === 0 || (holder.mode & 0o1000) !== 0);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Where the redirect folders go. macOS and Windows: the OS temp folder (per user on both).
  * Linux and the like: `$XDG_RUNTIME_DIR` when it is a private directory of ours (Snap browsers
  * on Ubuntu cannot read `/tmp`), else `~/.cache/pgard/open` (created 0700, checked to be ours
@@ -161,6 +192,7 @@ export async function redirectRoot(
   },
 ): Promise<string> {
   const { platform, env, homeDir, uid } = context;
+  const gid = "gid" in context ? context.gid : process.getgid?.();
   if (platform === "darwin") return os.tmpdir();
   if (platform === "win32") {
     // #430: the one-time link must never be written to a network share (a UNC `TEMP`).
@@ -175,13 +207,34 @@ export async function redirectRoot(
   if (path.isAbsolute(runtime) && (await isPrivateDirectory(runtime, uid))) return runtime;
   if (!path.isAbsolute(homeDir))
     throw new RedirectFileError("No home folder for the redirect file.");
+  // One component at a time: each parent is checked before the next one is created in it, so
+  // nothing is created inside a shared folder that a link points to (#430).
   const cache = path.join(homeDir, ".cache", "pgard", "open");
-  await mkdir(cache, { recursive: true, mode: 0o700 }).catch(() => undefined);
-  if (!(await isPrivateDirectory(cache, uid))) {
-    throw new RedirectFileError("The redirect folder is not private.");
+  const notPrivate = new RedirectFileError("The redirect folder is not private.");
+  let current = homeDir;
+  for (const name of [".cache", "pgard", "open"]) {
+    current = path.join(current, name);
+    if ((await lstat(current).catch(() => null)) === null) {
+      await mkdir(current, { mode: 0o700 }).catch(() => undefined);
+    }
+    const isLast = name === "open";
+    const isOk = isLast
+      ? await isPrivateDirectory(current, uid)
+      : await isTrustedParent(current, uid, gid);
+    if (!isOk) throw notPrivate;
   }
   return cache;
 }
+
+/**
+ * Letters that Windows best-fit code pages (874, 932-950, 1250-1258) turn into a shell-special
+ * ASCII character: quotes and backtick (U+02B9 to U+02BC, U+02C8, U+02CA, U+02CB, U+02EE),
+ * `|` (U+01C0), `!` (U+01C3) and `^` (U+02C6, U+02C7). Other letters stay allowed (Japanese
+ * names use U+3005 and U+30FC).
+ */
+const QUOTE_LOOKALIKES = /[ǀǃʹ-ʼˆ-ˈˊˋˮ]/u;
+/** Combining marks that best-fit to `"` (U+030E), backtick (U+0300) and `^` (U+0302). */
+const WINDOWS_MARK_LOOKALIKES = /[̀̂̎]/u;
 
 /** `pgard-open-` plus the six characters `mkdtemp` adds. */
 const REDIRECT_DIR_NAME = /^pgard-open-[A-Za-z0-9]{6}$/;
@@ -202,6 +255,13 @@ export function isOurRedirectFile(
   const paths = platform === "win32" ? path.win32 : path.posix;
   if (!paths.isAbsolute(filePath) || paths.normalize(filePath) !== filePath) return false;
   if (!/^[\p{L}\p{N}\p{M} _.~:/\\()-]+$/u.test(filePath)) return false;
+  // #430: modifier letters that a legacy code page best-fits to a quote or backtick (U+02B9 to
+  // U+02BC, U+02C8, U+02CA, U+02CB, U+02EE). Other modifier letters stay: Japanese names use
+  // U+3005 and U+30FC.
+  if (QUOTE_LOOKALIKES.test(filePath)) return false;
+  // Combining marks that best-fit to a quote, backtick or caret are refused only on Windows,
+  // where the best-fit tables apply (a macOS NFD path legitimately holds U+0300 for a grave).
+  if (platform === "win32" && WINDOWS_MARK_LOOKALIKES.test(filePath)) return false;
   return (
     paths.dirname(filePath) === redirectDir &&
     paths.basename(filePath) === REDIRECT_FILE_NAME &&

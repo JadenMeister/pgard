@@ -41,6 +41,26 @@ export interface LanguageTrackDetection {
   truncated: boolean;
 }
 
+/** The directory a manifest speaks for: its own, or the project above `gradle/` for the catalog. */
+function manifestScope(manifestPath: string): string {
+  const slash = manifestPath.lastIndexOf("/");
+  const directory = slash < 0 ? "" : manifestPath.slice(0, slash);
+  if (directory === "gradle") return "";
+  return directory.endsWith("/gradle") ? directory.slice(0, -"/gradle".length) : directory;
+}
+
+/**
+ * A Java or Kotlin manifest speaks for the files of that language below its directory (a Spring
+ * module next to a Ktor module must not label the Ktor files Spring, #303). Other languages keep
+ * the project-wide reading.
+ */
+function appliesToFiles(manifestPath: string, language: TreeSitterLanguage, walk: WalkResult) {
+  if (language !== "java" && language !== "kotlin") return true;
+  const scope = manifestScope(manifestPath);
+  if (scope === "") return true;
+  return walk.trackFiles[language].some((file) => file.relativePath.startsWith(`${scope}/`));
+}
+
 /**
  * Detects Java, Kotlin, Python and PHP files and their frameworks. Read-only: manifests are only
  * read as text. No grammar is loaded here.
@@ -52,17 +72,20 @@ export async function detectLanguageTrack(walk: WalkResult): Promise<LanguageTra
       ? await detectFrameworks(walk.trackManifests)
       : { frameworks: [], issues: [] as ManifestIssue[] };
   return {
-    languages: present.map((language) => ({
-      language,
-      files: walk.trackFiles[language].length,
-      frameworks: [
-        ...new Set(
-          frameworks
-            .filter((entry) => FRAMEWORK_LANGUAGES[entry.framework].includes(language))
-            .map((entry) => entry.framework),
-        ),
-      ],
-    })),
+    languages: present.map((language) => {
+      const named = frameworks.filter((entry) =>
+        FRAMEWORK_LANGUAGES[entry.framework].includes(language),
+      );
+      // A manifest that speaks for files of this language wins. When none of them names a
+      // framework (it comes from a parent pom, buildSrc or a root build file), every manifest
+      // counts, so a label is never lost.
+      const scoped = named.filter((entry) => appliesToFiles(entry.manifestPath, language, walk));
+      return {
+        language,
+        files: walk.trackFiles[language].length,
+        frameworks: [...new Set((scoped.length > 0 ? scoped : named).map((e) => e.framework))],
+      };
+    }),
     manifestIssues: issues,
     truncated: walk.trackTruncated,
   };

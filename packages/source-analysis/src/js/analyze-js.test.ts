@@ -1215,6 +1215,9 @@ describe("PG-COOKIE-001 option resolution and name filter", () => {
       severity: "low",
     });
     expect(findingsIn("res.cookie('sid', v);")[0]).toMatchObject({ confidence: "medium" });
+    // The literal cookie name is in the evidence (#410); an odd or long one is not.
+    expect(findingsIn("res.cookie('sid', v);")[0]?.evidence).toContain('session-like name "sid"');
+    expect(findingsIn("res.cookie('sid id', v);")[0]?.evidence).not.toContain('"sid id"');
   });
 
   it("marks a session-like cookie as a cookie session for CSRF", () => {

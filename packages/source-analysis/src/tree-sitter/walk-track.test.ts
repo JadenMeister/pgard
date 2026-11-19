@@ -170,6 +170,62 @@ describe("more manifests", () => {
     expect(detectGradleCatalogFrameworks("# org.springframework\n")).toEqual([]);
   });
 
+  it("names the framework of the module, not of the whole repository (#303)", async () => {
+    const root = project({
+      "spring-app/pom.xml":
+        "<project><dependencies><dependency><groupId>org.springframework.boot</groupId></dependency></dependencies></project>",
+      "spring-app/src/Main.java": "class Main {}\n",
+      "ktor-app/build.gradle.kts":
+        'dependencies { implementation("io.ktor:ktor-server-core:2.3.0") }\n',
+      "ktor-app/src/App.kt": "fun main() {}\n",
+    });
+    const detection = await detectLanguageTrack(await walkSourceTree(root));
+    const byLanguage = (language: string) =>
+      detection.languages.find((entry) => entry.language === language)?.frameworks;
+    expect(byLanguage("kotlin")).toEqual(["Ktor"]);
+    expect(byLanguage("java")).toEqual(["Spring"]);
+  });
+
+  it("keeps the label when the framework comes from a sibling parent pom (#303)", async () => {
+    const root = project({
+      "parent/pom.xml":
+        "<project><modules><module>../app</module></modules><dependencies><dependency><groupId>org.springframework.boot</groupId></dependency></dependencies></project>",
+      "app/pom.xml": "<project><artifactId>app</artifactId></project>",
+      "app/src/Main.java": "class Main {}\n",
+    });
+    const detection = await detectLanguageTrack(await walkSourceTree(root));
+    expect(detection.languages.find((e) => e.language === "java")?.frameworks).toEqual(["Spring"]);
+  });
+
+  it("keeps the label when the framework comes from buildSrc", async () => {
+    const root = project({
+      "buildSrc/build.gradle.kts":
+        'dependencies { implementation("org.springframework.boot:x") }\n',
+      "svc/build.gradle.kts": 'plugins { id("conventions") }\n',
+      "svc/src/App.kt": "fun main() {}\n",
+    });
+    const detection = await detectLanguageTrack(await walkSourceTree(root));
+    expect(detection.languages.find((e) => e.language === "kotlin")?.frameworks).toEqual([
+      "Spring",
+    ]);
+  });
+
+  it("applies a root manifest to every module", async () => {
+    const root = project({
+      "build.gradle":
+        "dependencies { implementation 'org.springframework.boot:spring-boot-starter' }\n",
+      "svc/src/App.kt": "fun main() {}\n",
+      "svc/src/Other.java": "class Other {}\n",
+    });
+    const detection = await detectLanguageTrack(await walkSourceTree(root));
+    expect(detection.languages.map((entry) => [entry.language, entry.frameworks])).toEqual(
+      expect.arrayContaining([
+        ["kotlin", ["Spring"]],
+        ["java", ["Spring"]],
+      ]),
+    );
+  });
+
   it("keeps // inside Gradle strings when stripping comments", () => {
     const script = `repositories { maven { url "https://repo.example/x" } }\n// comment\n/* block */ implementation 'org.springframework:spring-core' // tail\n`;
     const stripped = stripGradleComments(script);

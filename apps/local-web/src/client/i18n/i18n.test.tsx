@@ -75,6 +75,18 @@ describe("catalog wording", () => {
       informational: "Informational",
     });
   });
+
+  it("renders the merged far-expiry notice with a count in both languages (#249)", () => {
+    for (const catalog of [en, ko]) {
+      const far = catalog.scan.suppressionNotice.far;
+      const merged = far("", "", "9999-12-31", 5);
+      expect(merged).toContain("5");
+      expect(merged).toContain("9999-12-31");
+      const single = far("PG-SQL-001", "scripts/**", "2999-01-01", 1);
+      expect(single).toContain("PG-SQL-001");
+      expect(far("PG-SQL-001", "scripts/**", "2999-01-01", 2)).not.toContain("PG-SQL-001");
+    }
+  });
 });
 
 describe("detectLanguage", () => {

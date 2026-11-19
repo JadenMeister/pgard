@@ -347,7 +347,7 @@ function suppressionNoticeText(notice: SuppressionNotice, t: CliText): string {
     case "expired":
       return texts.expired(rule, path, notice.expires ?? "?");
     case "far":
-      return texts.far(rule, path, notice.expires ?? "?");
+      return texts.far(rule, path, notice.expires ?? "?", count);
     case "wildcard":
       return texts.wildcard(rule, path, count);
     case "total":

@@ -1,4 +1,12 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -103,5 +111,68 @@ describe.skipIf(process.platform === "win32")("redirectRoot on Linux", () => {
     await expect(
       redirectRoot({ platform: "linux", env: {}, homeDir: "", uid }),
     ).rejects.toBeInstanceOf(RedirectFileError);
+  });
+
+  describe("parents (#430)", () => {
+    const rootFor = (home: string) =>
+      redirectRoot({ platform: "linux", env: {}, homeDir: home, uid });
+
+    it("refuses a ~/.cache or ~/.cache/pgard link into a world-writable folder", async () => {
+      for (const linked of [".cache", path.join(".cache", "pgard")]) {
+        const home = scratch();
+        const shared = path.join(home, "shared");
+        mkdirSync(shared, { mode: 0o777 });
+        chmodSync(shared, 0o777);
+        mkdirSync(path.join(shared, "pgard", "open"), { recursive: true, mode: 0o700 });
+        if (linked === ".cache") symlinkSync(shared, path.join(home, ".cache"));
+        else {
+          mkdirSync(path.join(home, ".cache"));
+          symlinkSync(path.join(shared, "pgard"), path.join(home, ".cache", "pgard"));
+        }
+        await expect(rootFor(home)).rejects.toBeInstanceOf(RedirectFileError);
+      }
+    });
+
+    it("checks each parent before creating anything inside it", async () => {
+      const home = scratch();
+      const shared = path.join(home, "shared");
+      mkdirSync(shared, { mode: 0o777 });
+      chmodSync(shared, 0o777);
+      symlinkSync(shared, path.join(home, ".cache"));
+      await expect(rootFor(home)).rejects.toBeInstanceOf(RedirectFileError);
+      expect(readdirSync(shared)).toEqual([]); // no pgard/open was created in the shared folder
+    });
+
+    it("accepts a group-writable ~/.cache of our own group, refuses a foreign group or o+w", async () => {
+      const home = scratch();
+      mkdirSync(path.join(home, ".cache"));
+      chmodSync(path.join(home, ".cache"), 0o775);
+      const gid = process.getgid?.();
+      expect(await rootFor(home)).toBe(path.join(home, ".cache", "pgard", "open"));
+      const foreign = scratch();
+      mkdirSync(path.join(foreign, ".cache"));
+      chmodSync(path.join(foreign, ".cache"), 0o775);
+      await expect(
+        redirectRoot({
+          platform: "linux",
+          env: {},
+          homeDir: foreign,
+          uid,
+          gid: gid === undefined ? undefined : gid + 12345,
+        }),
+      ).rejects.toBeInstanceOf(RedirectFileError);
+      const open = scratch();
+      mkdirSync(path.join(open, ".cache"));
+      chmodSync(path.join(open, ".cache"), 0o757);
+      await expect(rootFor(open)).rejects.toBeInstanceOf(RedirectFileError);
+    });
+
+    it("accepts a link to a private folder of ours", async () => {
+      const real = path.join(scratch(), "real-cache");
+      mkdirSync(real, { mode: 0o755 });
+      const home2 = scratch();
+      symlinkSync(real, path.join(home2, ".cache"));
+      expect(await rootFor(home2)).toBe(path.join(home2, ".cache", "pgard", "open"));
+    });
   });
 });

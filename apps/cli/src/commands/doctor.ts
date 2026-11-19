@@ -10,7 +10,7 @@ import { scrubAbsolutePaths } from "@pgard/findings";
 import type { HostProbe } from "../deps.js";
 import { out, type CommandContext } from "../context.js";
 import { EXIT_CODES, type ExitCode } from "../exit-codes.js";
-import { fitLines } from "../ui/formatters/fit-lines.js";
+import { displayWidth, splitAnsiWord, wrapWidth } from "../ui/i18n/display-width.js";
 import { safeText, terminalWidth } from "../ui/formatters/style.js";
 import { cliText, type CliText } from "../ui/i18n/cli-text.js";
 import { JAVA_ADVISORIES, latestListDate } from "../java-runtime/advisories.js";
@@ -23,6 +23,8 @@ import { localizeKeychainReason, networkHintText } from "../ui/i18n/command-text
  * release of 2026-10-21 (CVE-2026-111497 Brotli RCE and others). Odd and
  * end-of-life lines get no fixes; lines newer than the last entry include them.
  */
+const NBSP = "\u00a0";
+
 export const MIN_NODE_VERSIONS = [
   [22, 23, 4],
   [24, 22, 1],
@@ -315,7 +317,23 @@ export async function runDoctor(context: CommandContext): Promise<ExitCode> {
   // On a terminal a long row wraps under its text; a pipe keeps one line per check.
   const width =
     context.io.stdout.isTTY === true ? terminalWidth(context.io.stdout, context.io.env) : null;
-  const fitRow = (line: string): string[] => (width === null ? [line] : fitLines(line, width));
+  const fitRow = (mark: string, body: string): string[] => {
+    if (width === null) return [`  ${mark} ${body}`];
+    // Continuation lines hang under the text, after the 6-column mark. A `command` in backticks
+    // is kept on one line when it fits, so it can be copied.
+    const hang = 2 + 6 + 1;
+    const room = Math.max(20, width - hang);
+    const glued = body.replace(/`[^`]*`/g, (span) =>
+      displayWidth(span) <= room ? span.replace(/ /g, NBSP) : span,
+    );
+    const words = glued
+      .split(" ")
+      .flatMap((word) => (displayWidth(word) <= room ? [word] : splitAnsiWord(word, room)));
+    return wrapWidth(words.join(" "), room).map(
+      (piece, index) =>
+        `${index === 0 ? `  ${mark} ` : " ".repeat(hang)}${piece.replaceAll(NBSP, " ")}`,
+    );
+  };
   out(context, style.bold(text.title));
   for (const check of checks) {
     const mark = check.isInfo
@@ -325,9 +343,9 @@ export async function runDoctor(context: CommandContext): Promise<ExitCode> {
         : check.isRequired
           ? style.red("[fail]")
           : style.yellow("[warn]");
-    for (const line of fitRow(`  ${mark} ${check.label}: ${check.detail}`)) out(context, line);
+    for (const line of fitRow(mark, `${check.label}: ${check.detail}`)) out(context, line);
   }
-  for (const line of fitRow(`  ${style.dim("[info]")} ${text.codeOnlyInfo}`)) out(context, line);
+  for (const line of fitRow(style.dim("[info]"), text.codeOnlyInfo)) out(context, line);
   const failedCount = checks.filter((check) => check.isRequired && !check.isOk).length;
   out(
     context,

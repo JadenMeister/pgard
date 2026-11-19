@@ -58,7 +58,7 @@ const SPRING_FLAG: Record<string, RegExp> = {
 };
 /** `<indent><quote?>key<quote?><separator><quote?>off-value<quote?>` and nothing else on the line. */
 const SPRING_FLAG_LINE =
-  /^( {0,40})(["']?)((?:[\w-]{1,40}\.){0,8}(?:secure|http-?only))\2([ \t]{0,3}[=:][ \t]{0,3})(["']?)(false|off|no|0)\5$/i;
+  /^( {0,40})(["']?)((?:[\w-]{1,40}\.){0,8}(?:secure|http-?only))\2( {0,3}[=:] {0,3})(["']?)(false|off|no|0)\5$/i;
 /** The profile of the document: a dev, local or test configuration is probably meant to be insecure. */
 const NON_PRODUCTION_FILE =
   /(?:^|[/\\])application[-_.](?:dev|local|test)[\w.-]*\.(?:properties|ya?ml)$/i;
@@ -204,6 +204,23 @@ const KOTLIN_DECLARATION = new RegExp(
 const KOTLIN_CALL = new RegExp(
   `^( {0,40})java\\.util\\.Random\\(\\)\\.(nextBytes|nextInt|nextLong|nextDouble|nextFloat|nextBoolean)\\((${NAME})?\\)$`,
 );
+/**
+ * `text` without `/* ... *\/` comments (an unclosed one runs to the end), in linear time, so an
+ * import written inside a block comment is not an import. Quotes are not tracked: a `/*` inside a
+ * string only removes more text, which can withhold a fix, never grant one.
+ */
+function withoutBlockComments(text: string): string {
+  let result = "";
+  let from = 0;
+  for (;;) {
+    const start = text.indexOf("/*", from);
+    if (start < 0) return result + text.slice(from);
+    result += `${text.slice(from, start)} `;
+    const end = text.indexOf("*/", start + 2);
+    if (end < 0) return result;
+    from = end + 2;
+  }
+}
 const IMPORTS_SINGLE_UTIL_RANDOM = /^[ \t]*import[ \t]+java\.util\.Random[ \t]*;[ \t]*$/m;
 /** Another single-type import of a `Random` (a wildcard import never beats the explicit one). */
 const IMPORTS_OTHER_RANDOM = /^[ \t]*import[ \t]+(?!java\.util\.Random\b)[\w.]+\.Random[ \t]*;/m;
@@ -240,7 +257,7 @@ const fixJavaRandom: Fixer = ({ path, text, line, nextLine, evidence }) => {
   }
   if (extension !== ".java") return null;
   if (
-    !IMPORTS_SINGLE_UTIL_RANDOM.test(text) ||
+    !IMPORTS_SINGLE_UTIL_RANDOM.test(withoutBlockComments(text)) ||
     IMPORTS_OTHER_RANDOM.test(text) ||
     DECLARES_RANDOM.test(text)
   ) {

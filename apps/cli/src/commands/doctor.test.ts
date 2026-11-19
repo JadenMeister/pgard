@@ -59,6 +59,22 @@ describe("runDoctor width (#301)", () => {
   });
 });
 
+describe("runDoctor hanging indent", () => {
+  it("aligns continuation lines under the text for every mark, and keeps backticked commands whole", async () => {
+    const tty = createTestIo({ isTTY: true, env: { COLUMNS: "50" } });
+    await runDoctor(createTestContext(tty, createTestDeps()));
+    const lines = tty.stdout().split("\n");
+    const continuation = lines.filter((line) => /^ {9}\S/.test(line));
+    expect(continuation.length).toBeGreaterThan(0);
+    for (const line of lines) {
+      if (/^ {2,8}\S/.test(line)) expect(line).toMatch(/^ {2}\[(ok|info|warn|fail)\]/);
+      if (line.startsWith(" ")) expect(displayWidth(line), line).toBeLessThanOrEqual(50);
+    }
+    const joined = lines.join("\n");
+    for (const span of joined.match(/`[^`]*`/g) ?? []) expect(span).not.toContain("\n");
+  });
+});
+
 describe("runDoctor", () => {
   it("shows the built-in PGARD App when no override is set, and exits 0", async () => {
     const captured = createTestIo();

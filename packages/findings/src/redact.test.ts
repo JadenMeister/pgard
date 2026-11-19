@@ -7,6 +7,7 @@ import {
   redactEvidence,
   redactFinding,
   redactLocationPath,
+  unmarkLocationPath,
   stringifyJsonSafely,
   redactSecrets,
 } from "./redact.js";
@@ -265,9 +266,35 @@ describe("redactFinding locations (#54)", () => {
       ...base,
       location: { ...base.location, path: "src/a\u009b31m\u202egnp.js\u2066\u200b\u061c\n.ts" },
     });
-    // Secret masking already drops zero-width characters; the others are marked.
-    expect(result.location.path).toBe("src/a\\u009b31m\\u202egnp.js\\u2066\\u061c\\u000a.ts");
+    expect(result.location.path).toBe(
+      "src/a\\u009b31m\\u202egnp.js\\u2066\\u200b\\u061c\\u000a.ts",
+    );
     expect(redactLocationPath("src/plain/file.ts")).toBe("src/plain/file.ts");
+  });
+
+  it("escapes zero-width characters in paths so names stay distinct (#376)", () => {
+    for (const char of ["\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"]) {
+      const marked = redactLocationPath(`src/a${char}b.js`);
+      expect(marked).toBe(`src/a\\u${char.charCodeAt(0).toString(16)}b.js`);
+      expect(marked).not.toBe(redactLocationPath("src/ab.js"));
+      expect(unmarkLocationPath(marked as string)).toBe(`src/a${char}b.js`);
+    }
+  });
+
+  it("is idempotent for marked paths and leaves ordinary and non-Latin names readable (#376)", () => {
+    const marked = redactLocationPath("src/a\u200bb.js") as string;
+    expect(redactLocationPath(marked)).toBe(marked);
+    expect(redactLocationPath("src\\a.js")).toBe("src\\a.js");
+    expect(redactLocationPath("src/한글/café.js")).toBe("src/한글/café.js");
+  });
+
+  it("still masks a secret split by zero-width characters in a path (#376)", () => {
+    const secret = `ghp_${"a1B2c3D4e5F6g7H8i9J0".repeat(2)}`;
+    const split = `${secret.slice(0, 10)}\u200b${secret.slice(10)}`;
+    const result = redactLocationPath(`keys/${split}.pem`) as string;
+    expect(result).toContain("[REDACTED");
+    expect(result).not.toContain("a1B2c3D4e5");
+    expect(result).not.toContain("u200b");
   });
 
   it("scrubs home paths and secrets from URLs", () => {
