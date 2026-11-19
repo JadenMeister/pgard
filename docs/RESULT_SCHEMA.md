@@ -32,6 +32,8 @@ Readers ignore fields they do not know. Anything that reads a result back (store
 | Other major                   | Refused with `version_unsupported_major` and a message naming the version. The reader never tries to convert or guess.              |
 | Missing or malformed          | Refused with `version_missing` or `version_malformed`. A valid version is exactly two dot-separated integers without leading zeros. |
 
+The reader accepts a newer minor, but the CLI comparison, trend and baseline do not use such a file: they skip it and print a warning, because they would otherwise compare a result with fields they cannot read.
+
 The version grammar is `major.minor`, each part a non-negative integer of at most 6 digits and without leading zeros.
 
 A version that is accepted is still checked against the full shape. A wrong enum value, a missing required field, a hole in an array, a duplicate `Finding.id`, a line number below 1 or an oversized array is refused with `invalid_shape` or `too_large`, whatever the version says. The reader reads own data properties only (it never runs getters), and caps array sizes, string lengths and the total number of array entries (`READ_LIMITS`), so a hostile file cannot make it do unbounded work after parsing. Callers must cap the file size before `JSON.parse`; the reader cannot do that for them.
