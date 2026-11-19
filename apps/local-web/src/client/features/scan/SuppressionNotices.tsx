@@ -23,7 +23,7 @@ function noticeText(notice: SuppressionNotice, text: Text): string {
     case "expired":
       return text.expired(rule, path, notice.expires ?? "?");
     case "far":
-      return text.far(rule, path, notice.expires ?? "?");
+      return text.far(rule, path, notice.expires ?? "?", notice.count ?? 1);
     case "wildcard":
       return text.wildcard(rule, path, count);
     case "total":

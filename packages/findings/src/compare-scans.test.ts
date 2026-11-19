@@ -307,6 +307,27 @@ describe("compareScans", () => {
     });
   });
 
+  it("ignores the cookie name in evidence, so an older baseline still matches (#410)", () => {
+    const base: Partial<Finding> = { ruleId: "PG-COOKIE-001" };
+    const old = finding({
+      ...base,
+      evidence: "res.cookie(session-like name) without httpOnly, secure",
+    });
+    const named = finding({
+      ...base,
+      evidence: 'res.cookie(session-like name "sid") without httpOnly, secure',
+    });
+    expect(findingIdentity(named)).toBe(findingIdentity(old));
+    const other = finding({ ...base, evidence: "res.cookie(session-like name) without secure" });
+    expect(findingIdentity(other)).not.toBe(findingIdentity(old));
+    expect(compareScans(scan([old]), scan([named])).unchanged).toHaveLength(1);
+    // The same text in another rule's evidence is left alone.
+    const sql = (evidence: string) => finding({ ruleId: "PG-SQL-001", evidence });
+    expect(findingIdentity(sql('res.cookie(session-like name "sid") x'))).not.toBe(
+      findingIdentity(sql("res.cookie(session-like name) x")),
+    );
+  });
+
   it("is deterministic and does not mutate its inputs", () => {
     const previous = scan([finding({ line: 5 }), finding({ line: 7 })]);
     const current = scan([finding({ line: 8 }), finding({ line: 6 })]);
@@ -347,6 +368,19 @@ describe("compareScans", () => {
         expect(result.notComparable, area).toHaveLength(1);
         expect(result.areas.find((a) => a.area === area)?.held).toBe(1);
       }
+    });
+
+    it("an unsupported ORM holds SQL findings only, other rules can be no longer reported (#223)", () => {
+      const cover = [
+        cov("source:javascript", "code", "completed", ["PG-SQL-001", "PG-XSS-001"]),
+        cov("source:orm:prisma", "code", "partial", []),
+      ];
+      const sql = compareScans(scan([finding()], cover), scan([], cover));
+      expect(sql.noLongerReported).toEqual([]);
+      expect(sql.notComparable).toHaveLength(1);
+      const xss = compareScans(scan([finding({ ruleId: "PG-XSS-001" })], cover), scan([], cover));
+      expect(xss.noLongerReported).toHaveLength(1);
+      expect(xss.notComparable).toEqual([]);
     });
 
     it("a skipped-directory or symlink area that appears or changes blocks the scope", () => {

@@ -7,11 +7,12 @@ export const MAX_MANIFEST_BYTES = 1024 * 1024;
 /** `requirements.txt` lines read; longer files are cut and reported. */
 const MAX_REQUIREMENT_LINES = 20_000;
 
-export type Framework = "Spring" | "Django" | "Flask" | "FastAPI" | "Laravel" | "Symfony";
+export type Framework = "Spring" | "Ktor" | "Django" | "Flask" | "FastAPI" | "Laravel" | "Symfony";
 
 /** Languages a framework's code is written in. Spring projects are Java or Kotlin. */
 export const FRAMEWORK_LANGUAGES: Record<Framework, readonly TreeSitterLanguage[]> = {
   Spring: ["java", "kotlin"],
+  Ktor: ["kotlin"],
   Django: ["python"],
   Flask: ["python"],
   FastAPI: ["python"],
@@ -74,10 +75,12 @@ function normalizePythonName(name: string): string {
 export function detectMavenFrameworks(text: string): Framework[] | "unsafe_xml" {
   if (/<!(?:DOCTYPE|ENTITY)/i.test(text)) return "unsafe_xml";
   const withoutComments = stripDelimited(stripDelimited(text, "<!--", "-->"), "<![CDATA[", "]]>");
+  const frameworks = new Set<Framework>();
   for (const match of withoutComments.matchAll(/<groupId>\s*([^<\s]{1,200})\s*<\/groupId>/g)) {
-    if (/^org\.springframework(?:\.|$)/.test(match[1] as string)) return ["Spring"];
+    if (/^org\.springframework(?:\.|$)/.test(match[1] as string)) frameworks.add("Spring");
+    if (/^io\.ktor(?:\.|$)/.test(match[1] as string)) frameworks.add("Ktor");
   }
-  return [];
+  return [...frameworks];
 }
 
 /**
@@ -119,10 +122,18 @@ export function stripGradleComments(text: string): string {
 }
 
 const SPRING_PATTERN = /org\.springframework|spring-boot-starter/;
+const KTOR_PATTERN = /\bio\.ktor\b/;
+
+function jvmFrameworksIn(text: string): Framework[] {
+  const frameworks: Framework[] = [];
+  if (SPRING_PATTERN.test(text)) frameworks.push("Spring");
+  if (KTOR_PATTERN.test(text)) frameworks.push("Ktor");
+  return frameworks;
+}
 
 /** Gradle build scripts are only searched as text; they are never evaluated. */
 export function detectGradleFrameworks(text: string): Framework[] {
-  return SPRING_PATTERN.test(stripGradleComments(text)) ? ["Spring"] : [];
+  return jvmFrameworksIn(stripGradleComments(text));
 }
 
 /** `gradle/libs.versions.toml` version catalogs: text search, `#` comments removed. */
@@ -132,7 +143,7 @@ export function detectGradleCatalogFrameworks(text: string): Framework[] {
     .split("\n")
     .filter((line) => !line.trimStart().startsWith("#"))
     .join("\n");
-  return SPRING_PATTERN.test(withoutComments) ? ["Spring"] : [];
+  return jvmFrameworksIn(withoutComments);
 }
 
 /** Lines of a requirements file: `name`, `name==1.0`, `name[extra]>=2`. Options (`-r`) are skipped. */

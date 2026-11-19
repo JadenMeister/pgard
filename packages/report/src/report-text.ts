@@ -20,7 +20,7 @@ export interface NoticeTexts {
   everything: (count: number) => string;
   incomplete: string;
   expired: (ruleId: string, path: string, expires: string) => string;
-  far: (ruleId: string, path: string, expires: string) => string;
+  far: (ruleId: string, path: string, expires: string, count: number) => string;
   wildcard: (ruleId: string, path: string, count: number) => string;
   total: (count: number) => string;
   broad: (ruleId: string, path: string, count: number) => string;
@@ -169,8 +169,10 @@ const KO_NOTICES: NoticeTexts = {
     "억제 항목 매칭이 일찍 멈췄습니다(패턴 작업 한도). 그 이후에 확인한 발견 항목은 억제되지 않고 평소처럼 나열됩니다.",
   expired: (ruleId, path, expires) =>
     `${ruleId}의 억제 항목(${JSON.stringify(path)})은 ${expires}에 만료되어 적용되지 않았습니다.`,
-  far: (ruleId, path, expires) =>
-    `${ruleId}의 억제 항목(${JSON.stringify(path)})은 ${expires}까지로 1년이 넘게 남았습니다. 억제 항목은 정기적으로 검토해야 합니다.`,
+  far: (ruleId, path, expires, count) =>
+    count > 1
+      ? `억제 항목 ${count}개가 1년이 넘게 남았습니다(가장 늦은 것은 ${expires}까지). 억제 항목은 정기적으로 검토해야 합니다.`
+      : `${ruleId}의 억제 항목(${JSON.stringify(path)})은 ${expires}까지로 1년이 넘게 남았습니다. 억제 항목은 정기적으로 검토해야 합니다.`,
   wildcard: (ruleId, path, count) =>
     `${ruleId}의 억제 항목이 ${JSON.stringify(path)}를 사용합니다. 모든 파일, 그 규칙의 모든 발견 항목에 해당합니다 (${count}건 억제).`,
   total: (count) => `억제 항목이 몇 개든 합쳐서 발견 항목 ${count}건(10건 초과)이 억제되었습니다.`,
