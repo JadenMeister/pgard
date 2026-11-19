@@ -414,6 +414,12 @@ export function convertKotlin(ast: AstResult): Unit {
         return { ...(other(node, depth) as Extract<Expr, { k: "other" }>), spread: true };
       case "callable_reference":
         return other(node, depth);
+      case "try_expression":
+        // A `try` used as a value: a `throw` inside may be caught by its `catch`.
+        return {
+          ...(other(node, depth) as Extract<Expr, { k: "other" }>),
+          ...(node.children.some((child) => child.type === "catch_block") ? { caught: true } : {}),
+        };
       case "anonymous_function":
         // `fun() { return }`: a bare `return` leaves the function itself, not the enclosing one.
         return { ...(other(node, depth) as Extract<Expr, { k: "other" }>), anonFun: true };

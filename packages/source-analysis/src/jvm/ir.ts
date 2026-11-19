@@ -29,7 +29,7 @@ export type Expr = Base &
     | { k: "array"; elems: Expr[] }
     | ({ k: "lambda" } & LambdaBody)
     /** Anything else; `spread` marks a Kotlin `*array` argument. */
-    | { k: "other"; kids: Expr[]; spread?: boolean; anonFun?: boolean }
+    | { k: "other"; kids: Expr[]; spread?: boolean; anonFun?: boolean; caught?: boolean }
   );
 
 export interface LambdaBody {

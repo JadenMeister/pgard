@@ -256,7 +256,9 @@ function exprLeaves(expr: Expr | null | undefined, nested: Nested, abort: boolea
           const inner = [...(nested ?? []), "<fun>"];
           return current.kids.some((kid) => exprLeaves(kid, inner, false));
         }
-        return current.kids.some((kid) => exprLeaves(kid, nested, abort));
+        // A `try` with a `catch` used as a value: a throw inside may be caught.
+        const inside = abort && current.caught !== true;
+        return current.kids.some((kid) => exprLeaves(kid, nested, inside));
       }
       default:
         return false;
@@ -329,7 +331,10 @@ function leaves(stmt: Stmt, inLoopOrArms: boolean, nested: Nested, abort: boolea
     case "arms":
       return (
         exprLeaves(stmt.subject, nested, abort) ||
-        stmt.arms.some((arm) => listLeaves(arm.body, true, nested, abort))
+        stmt.arms.some((arm) =>
+          // A catch handler or switch arm that throws may leave the whole try: not an abort.
+          listLeaves(arm.body, true, nested, abort && arm.always === true),
+        )
       );
     case "assert":
       return false;
@@ -494,7 +499,10 @@ export function walkBody(
         exprs([stmt.subject], context, null);
         // A `finally` block runs whatever the `try` does; the other arms may not run.
         for (const arm of stmt.arms) {
+          const saved = abort;
+          if (arm.always !== true) abort = false;
           stmts(arm.body, arm.always === true ? context : { conditional: true });
+          abort = saved;
         }
         break;
       case "exit":

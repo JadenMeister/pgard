@@ -156,6 +156,66 @@ describe("an uncaught throw in Kotlin (#367)", () => {
   });
 });
 
+describe("a caught throw is never taken for an abort (#367 review)", () => {
+  const disable = "    http.csrf { it.disable() }";
+  const stateless =
+    "http.sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }; http.oauth2ResourceServer { it.jwt { } }";
+  const ksec = `${KSEC}import org.springframework.security.config.http.SessionCreationPolicy\n`;
+  const kt = (body: string): string =>
+    `${ksec}\nclass C {\n  fun f(http: HttpSecurity): SecurityFilterChain {\n${body}\n    return http.build()\n  }\n}\n`;
+
+  it("a Kotlin try used as a value keeps its catch", async () => {
+    const guard = `if (!flag()) throw IllegalStateException("x"); ${stateless}; true`;
+    for (const head of [
+      `    val ok = try { ${guard} } catch (e: IllegalStateException) { false }`,
+      `    prep(try { ${guard} } catch (e: IllegalStateException) { false })`,
+      `    val ok = run { try { ${guard} } catch (e: IllegalStateException) { false } }`,
+      `    val ok = if (flag()) try { ${guard} } catch (e: IllegalStateException) { false } else true`,
+      `    val ok = (try { ${guard} } catch (e: Exception) { false }) && flag()`,
+      `    val ok = try { try { ${guard} } finally { prep() } } catch (e: IllegalStateException) { false }`,
+    ]) {
+      expect(await csrf(kt(`${head}\n${disable}`), "A.kt"), head).toBe(LOW);
+    }
+  });
+
+  it("a try as the returned value of a helper-less chain keeps its catch", async () => {
+    const source = `${ksec}\nclass C {\n  fun f(http: HttpSecurity): SecurityFilterChain {\n    http.csrf { it.disable() }\n    return try { if (!flag()) throw Error(); http.build() } catch (e: Exception) { http.build() }\n  }\n}\n`;
+    expect(await csrf(source, "A.kt")).toBe(FULL);
+  });
+
+  it("a try with only a finally, used as a value, does not catch", async () => {
+    expect(
+      await csrf(
+        kt(
+          `    val ok = try { if (!flag()) throw Error(); ${stateless}; true } finally { prep() }\n${disable}`,
+        ),
+        "A.kt",
+      ),
+    ).toBe("none");
+  });
+
+  it("a catch handler that throws is not an abort either", async () => {
+    expect(
+      await csrf(
+        chain(
+          `try { work(); http.sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS)).oauth2ResourceServer(o -> o.jwt()); } catch (Exception e) { if (flag()) throw new RuntimeException(e); }\n${DISABLE}`,
+        ),
+      ),
+    ).toBe(LOW);
+  });
+
+  it("a caller that does not take HttpSecurity still counts as a caller", async () => {
+    expect(
+      await csrf(
+        chain(
+          `if (flag()) throw new Error();\n${DISABLE}`,
+          `  Object g(Object o) {\n    try { return f(make()); } catch (Exception e) { return null; }\n  }`,
+        ),
+      ),
+    ).toBe(LOW);
+  });
+});
+
 describe("a finally block always runs (#367)", () => {
   it("counts a call in finally as unconditional", async () => {
     expect(await csrf(chain(`try { prep(); } finally { ${DISABLE} }`))).toBe(FULL);

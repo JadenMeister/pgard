@@ -229,7 +229,7 @@ describe("early walk stop marks every source area (M-1)", () => {
       if (stat.area.startsWith("source:")) expect(stat.status, stat.area).not.toBe("completed");
     }
     const build = output.coverage.find((entry) => entry.area === "source:build-output");
-    expect(build?.walkedDirectories?.complete).not.toBe(true);
+    expect(build?.walkedDirectories?.complete).toBe(false);
   };
 
   it("on the entry cap", async () => {
