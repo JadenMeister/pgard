@@ -17,6 +17,7 @@ import {
   REDIRECT_FILE_NAME,
   redirectPage,
   RedirectFileError,
+  isOurRedirectFile,
 } from "./redirect-file.js";
 import { URL_TOKEN_TTL_MS } from "./session/url-session.js";
 
@@ -139,5 +140,56 @@ describe.skipIf(process.platform === "win32")("bindRedirectCleanup", () => {
     cleanup.onConnected();
     cleanup.onExit();
     await cleanup.onStop();
+  });
+});
+
+describe("isOurRedirectFile names and quote look-alikes (#430)", () => {
+  const check = (parent: string, platform: NodeJS.Platform = "linux"): boolean => {
+    const sep = platform === "win32" ? "\\" : "/";
+    const root = `${parent}${sep}open`;
+    const dir = `${root}${sep}pgard-open-abc123`;
+    return isOurRedirectFile(`${dir}${sep}${REDIRECT_FILE_NAME}`, dir, platform, root);
+  };
+
+  it("accepts Korean, Japanese, accented and plain names", () => {
+    expect(check("/home/plain")).toBe(true);
+    expect(check("/home/\uae40\ucca0\uc218")).toBe(true);
+    expect(check("/home/\u4f50\u3005\u6728")).toBe(true); // U+3005
+    expect(check("/home/\u30e6\u30fc\u30b6\u30fc")).toBe(true); // U+30FC
+    expect(check("/home/Ren\u00e9 Mu\u00f1oz")).toBe(true);
+    expect(check("C:\\Users\\\u4f50\u3005\u6728", "win32")).toBe(true);
+  });
+
+  it("refuses modifier letters and marks that best-fit to a quote or backtick", () => {
+    for (const mark of [
+      "\u02b9",
+      "\u02ba",
+      "\u02bb",
+      "\u02bc",
+      "\u02c8",
+      "\u02ca",
+      "\u02cb",
+      "\u02ee",
+      "\u01c0",
+      "\u01c3",
+      "\u02c6",
+      "\u02c7",
+      "\uff02",
+      '"',
+      "'",
+      "`",
+    ]) {
+      expect(check(`/home/u${mark}x`)).toBe(false);
+      expect(check(`C:\\Users\\u${mark}x`, "win32")).toBe(false);
+    }
+  });
+
+  it("refuses the combining look-alikes on Windows only; Hangul and accents stay", () => {
+    for (const mark of ["\u0300", "\u0302", "\u030e"]) {
+      expect(check(`C:\\Users\\e${mark}x`, "win32")).toBe(false);
+    }
+    expect(check("/home/e\u0300x")).toBe(true); // an NFD grave on macOS or Linux
+    expect(check("C:\\Users\\\ud55c\uae00\u00e9\u00fc", "win32")).toBe(true);
+    expect(check("C:\\Users\\e\u0301x", "win32")).toBe(true);
   });
 });

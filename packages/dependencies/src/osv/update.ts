@@ -263,7 +263,7 @@ export async function updateOsvData(options: UpdateOptions): Promise<UpdateOutco
     }));
   }
   try {
-    await removeLeftovers(osvDir);
+    await removeLeftovers(osvDir, options.now);
     const outcomes: UpdateOutcome[] = [];
     for (const ecosystem of ecosystems) {
       outcomes.push(await updateOne(ecosystem, options));
