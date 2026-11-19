@@ -41,6 +41,25 @@ describe("Korean CLI coverage view and authorization (#449)", () => {
     expect(view).not.toContain("<script>");
   });
 
+  it("marks the stored English rest after a leading Korean note as English", () => {
+    const base = coverageNote("config_budget_exceeded");
+    const withRest = entry({
+      area: "source:budget",
+      note: `${base.note} Another stored English sentence.`,
+      noteCode: "config_budget_exceeded",
+      noteParams: { rest: 1 },
+    });
+    const view = formatCoverage([withRest], plain, KO);
+    expect(view).toContain("pgard.config.json의 패턴이 매칭 작업 한도를 넘었습니다");
+    expect(view).toContain("(Another stored English sentence.)");
+    expect(view).not.toContain("WARNING");
+    // Without a remainder there are no parentheses; English is unchanged.
+    expect(formatCoverage([entry({ area: "source:budget", ...base })], plain, KO)).not.toContain(
+      "(Another",
+    );
+    expect(formatCoverage([withRest], plain, EN)).toContain("Another stored English sentence.");
+  });
+
   it("is unchanged in English", () => {
     const view = formatCoverage([coded, legacy], plain, EN);
     expect(view).toContain("3 source file(s) over 1 MiB were skipped.");

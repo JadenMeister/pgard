@@ -2,6 +2,7 @@ import { PGARD_VERSION, listSupportedRules, type RuleDescriptor } from "@pgard/s
 import { describe, expect, it } from "vitest";
 import type { CliDeps } from "../../deps.js";
 import { cliText } from "../../ui/i18n/cli-text.js";
+import { displayWidth } from "../../ui/i18n/display-width.js";
 import { createTestContext, createTestDeps, createTestIo } from "../../test-support.js";
 import {
   OTHER_RULES_HEADING,
@@ -24,6 +25,42 @@ async function runList(
   );
   return captured.stdout();
 }
+
+describe("runRulesList width and severity note (#301)", () => {
+  async function listOn(
+    isTTY: boolean,
+    env: Record<string, string>,
+    locale: "en" | "ko" = "en",
+  ): Promise<string[]> {
+    const captured = createTestIo({ isTTY, env });
+    const context = { ...createTestContext(captured, createTestDeps()), ruleLocale: locale };
+    expect(await runRulesList(context, null)).toBe(0);
+    return captured.stdout().split("\n");
+  }
+
+  it("wraps rows to the terminal width, under the title", async () => {
+    for (const locale of ["en", "ko"] as const) {
+      const lines = await listOn(true, { COLUMNS: "70" }, locale);
+      const rows = lines.filter((line) => /^ {2}PG-/.test(line));
+      expect(rows.length).toBeGreaterThan(20);
+      for (const line of rows) expect(displayWidth(line)).toBeLessThanOrEqual(70);
+      const wrapped = lines.filter((line) => /^ {26}\S/.test(line));
+      expect(wrapped.length).toBeGreaterThan(0);
+      for (const line of wrapped) expect(displayWidth(line)).toBeLessThanOrEqual(70);
+    }
+  });
+
+  it("keeps one line per rule when piped, whatever COLUMNS says", async () => {
+    const lines = await listOn(false, { COLUMNS: "40" });
+    expect(lines.some((line) => displayWidth(line) > 80)).toBe(true);
+    expect(lines.filter((line) => /^ {26}\S/.test(line))).toEqual([]);
+  });
+
+  it("explains that the severity column is a default, in both languages", async () => {
+    expect((await listOn(false, {})).join("\n")).toContain("severity shown is the rule's default");
+    expect((await listOn(false, {}, "ko")).join("\n")).toContain("기본값입니다");
+  });
+});
 
 describe("runRulesList", () => {
   it("shows the version header, web rules and unsupported areas, with no advisory status", async () => {

@@ -21,7 +21,6 @@ import { BACK, promptChoice } from "../ui/components/prompts.js";
 import { formatAuthorization } from "../ui/formatters/result-view.js";
 import { safeText } from "../ui/formatters/style.js";
 import { cliText } from "../ui/i18n/cli-text.js";
-import { NOT_A_REPOSITORY_MESSAGE } from "./project/verify.js";
 
 export interface ReportCommand {
   /** `null`: ask (menu only); the command line always passes a format. */
@@ -75,7 +74,7 @@ export async function runReport(
   }
   const projectRoot = await context.deps.findGitRoot(context.io.cwd);
   if (projectRoot === null) {
-    err(context, context.errStyle.red(NOT_A_REPOSITORY_MESSAGE));
+    err(context, context.errStyle.red(text.codeOnly.notGitRepository));
     return EXIT_CODES.blocked;
   }
 

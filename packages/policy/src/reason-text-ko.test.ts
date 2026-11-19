@@ -1,5 +1,8 @@
 import type { AuthorizationCheck } from "@pgard/findings";
 import { authorizationReasonText } from "@pgard/findings";
+import { appendFileSync } from "node:fs";
+import { join } from "node:path";
+import { GitHubAuthError } from "@pgard/github-auth";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createGitFixture,
@@ -204,6 +207,57 @@ describe("Korean text of every fixed reason the gate writes", () => {
     [
       "organization without an installation",
       async () => reasonsOf(repo(ORG).root, orgState({ installations: [] })),
+    ],
+    [
+      "organization, membership refused (403)",
+      async () =>
+        reasonsOf(
+          repo(ORG).root,
+          orgState({ memberships: { acme: new GitHubAuthError("forbidden", "forbidden", 403) } }),
+        ),
+    ],
+    [
+      "organization, membership not returned (404)",
+      async () => reasonsOf(repo(ORG).root, orgState({ memberships: {} })),
+    ],
+    [
+      "organization, membership of another user",
+      async () =>
+        reasonsOf(
+          repo(ORG).root,
+          orgState({
+            memberships: { acme: orgMembership({ user: { id: ME.id + 1, login: "someone" } }) },
+          }),
+        ),
+    ],
+    [
+      "organization, membership of another organization",
+      async () =>
+        reasonsOf(
+          repo(ORG).root,
+          orgState({
+            memberships: { acme: orgMembership({ organization: { id: 1, login: "other-org" } }) },
+          }),
+        ),
+    ],
+    [
+      "remote config rewrites URLs",
+      async () => {
+        const { root } = repo(PERSONAL);
+        appendFileSync(
+          join(root, ".git", "config"),
+          '[url "git@github.com:other/"]\n\tinsteadOf = git@github.com:maintainer/\n',
+        );
+        return reasonsOf(root, base());
+      },
+    ],
+    [
+      "remote config unreadable",
+      async () => {
+        const { root } = repo(PERSONAL);
+        appendFileSync(join(root, ".git", "config"), "[include]\n\tpath = missing-file\n");
+        return reasonsOf(root, base());
+      },
     ],
     [
       "remote that is not on github.com",

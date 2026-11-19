@@ -72,6 +72,40 @@ describe("writeReports", () => {
     expect((partial as ReportWriteError).code).toBe("file_exists");
   });
 
+  it("does not count a symbolic link to a saved report as already saved", async () => {
+    const other = await mkdtemp(path.join(os.tmpdir(), "pgard-report-link-"));
+    try {
+      const [first] = await writeReports(scanResult(), { format: "html", outputDir: directory });
+      const saved = first?.filePath ?? "";
+      await symlink(saved, path.join(other, path.basename(saved)));
+      const error = await writeReports(scanResult(), {
+        format: "html",
+        outputDir: other,
+        skipExisting: new Set([saved, await realpath(saved)]),
+      }).catch((caught: unknown) => caught);
+      expect((error as ReportWriteError).code).toBe("file_exists");
+      expect(await readFile(saved, "utf8")).toContain("PGARD security report");
+    } finally {
+      await rm(other, { recursive: true, force: true });
+    }
+  });
+
+  it("does not count a symlink at the exact saved path as already saved", async () => {
+    const [first] = await writeReports(scanResult(), { format: "html", outputDir: directory });
+    const saved = first?.filePath ?? "";
+    const elsewhere = path.join(directory, "elsewhere.txt");
+    await writeFile(elsewhere, "other");
+    await rm(saved);
+    await symlink(elsewhere, saved);
+    const error = await writeReports(scanResult(), {
+      format: "html",
+      outputDir: directory,
+      skipExisting: new Set([saved]),
+    }).catch((caught: unknown) => caught);
+    expect((error as ReportWriteError).code).toBe("file_exists");
+    expect(await readFile(elsewhere, "utf8")).toBe("other");
+  });
+
   it("does not follow a pre-planted symlink at the target name", async () => {
     const victim = path.join(directory, "victim.txt");
     await writeFile(victim, "original");

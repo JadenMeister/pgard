@@ -265,6 +265,26 @@ describe("runPanelsScreen, interrupts and end of input", () => {
     expect(processEvents.listenerCount("SIGINT")).toBe(0);
   });
 
+  it("restores the screen inside the SIGINT handler itself, not later in the unwinding (#311)", async () => {
+    for (const signal of ["SIGINT", "SIGTERM"]) {
+      const out = fakeStdout();
+      const processEvents = new EventEmitter();
+      const running = runPanelsScreen({
+        result: panelsFixtureResult(),
+        locale: "en",
+        stdout: out.stream,
+        env: EMPTY_ENV,
+        keys: never(),
+        processEvents,
+      });
+      expect(out.written().endsWith(LEAVE)).toBe(false);
+      // Checked in the same tick: the stream's data event is synchronous, nothing was awaited.
+      processEvents.emit(signal);
+      expect(out.written().endsWith(LEAVE), signal).toBe(true);
+      await running;
+    }
+  });
+
   it("restores the terminal at SIGTERM too", async () => {
     const out = fakeStdout();
     const processEvents = new EventEmitter();

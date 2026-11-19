@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import { parseCommandLine, UsageError } from "./options.js";
 
 describe("parseCommandLine", () => {
+  it("accepts --lang on the bare menu command, and rejects other options there", () => {
+    expect(parseCommandLine(["--lang", "ko"])).toEqual({ kind: "menu", lang: "ko" });
+    expect(() => parseCommandLine(["--lang", "fr"])).toThrow(UsageError);
+    expect(() => parseCommandLine(["--port", "3000"])).toThrow(UsageError);
+  });
+
   it("parses every documented command", () => {
     expect(parseCommandLine([])).toEqual({ kind: "menu" });
     expect(parseCommandLine(["--help"])).toEqual({ kind: "help", topic: "main" });

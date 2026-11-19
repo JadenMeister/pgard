@@ -53,7 +53,6 @@ import type { PreviousScan } from "../../flows/scan-diff-summary.js";
 import { offerPanels } from "../../flows/panels.js";
 import { loadTrend } from "../../flows/trend.js";
 import type { TrendData } from "../../ui/panels/types.js";
-import { NOT_A_REPOSITORY_MESSAGE } from "../project/verify.js";
 import { codeOnlyRefusalMessage, runCodeOnlyScanFlow } from "./code-only.js";
 
 export const SCOPES_BY_VARIANT: Record<ScanVariant, ScanScope[]> = {
@@ -311,7 +310,7 @@ async function runScanFlow(
     if (isRedirected) {
       err(context, context.errStyle.red(text.codeOnly.worktreeRedirected));
     } else {
-      err(context, context.errStyle.red(NOT_A_REPOSITORY_MESSAGE));
+      err(context, context.errStyle.red(text.codeOnly.notGitRepository));
     }
     if (await offerCodeOnly())
       return runCodeOnly(isRedirected ? "check_failed" : "not_a_git_repository");
@@ -486,6 +485,11 @@ async function runScanFlow(
     const guided = await offerGuidedInstall(context, scanned.outcome, projectRoot, authorization);
     throwIfCancelled(context);
     if (guided === "reauthorize") {
+      // The early check was blocked, so no port was confirmed and the re-scan has no web target:
+      // say so, or the not-tested web area would look unexplained.
+      if (scopes.includes("web") && webTarget === null) {
+        err(context, context.errStyle.yellow(text.notices.webRerunAfterInstall));
+      }
       scanned = await scanOnce();
       if (scanned === null) return EXIT_CODES.usage;
       previous = await loadPreviousScan(

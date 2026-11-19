@@ -45,9 +45,10 @@ export interface WriteReportsOptions extends ReportLanguageOptions {
   /** Directory chosen by the user. It must already exist; PGARD never creates or picks one. */
   outputDir: string;
   /**
-   * Files the caller itself saved earlier (as returned, or their real paths). A planned file in
-   * this set that already exists is reported as `skipped`, not refused and never overwritten.
-   * Any other existing file is still refused.
+   * Files the caller itself saved earlier (as returned). A planned file in this set that already
+   * exists as a plain file is reported as `skipped`, not refused and never overwritten. Any other
+   * existing file, and a symbolic link even to a saved file, is still refused. Matching is by
+   * path only: a saved file the user replaced with other content still counts as saved.
    */
   skipExisting?: ReadonlySet<string>;
 }
@@ -108,15 +109,6 @@ async function writeExclusive(filePath: string, content: string | Buffer): Promi
   } finally {
     await handle.close().catch(() => undefined);
     if (!isWritten) await unlink(filePath).catch(() => undefined);
-  }
-}
-
-async function pathExists(filePath: string): Promise<boolean> {
-  try {
-    await lstat(filePath);
-    return true;
-  } catch {
-    return false;
   }
 }
 
@@ -186,9 +178,11 @@ export async function writeReports(
   }
   const skipped = new Set<string>();
   for (const entry of planned) {
-    if (await pathExists(entry.filePath)) {
-      const real = await realpath(entry.filePath).catch(() => entry.filePath);
-      if (options.skipExisting?.has(entry.filePath) === true || options.skipExisting?.has(real)) {
+    const existing = await lstat(entry.filePath).catch(() => null);
+    if (existing !== null) {
+      // Only a plain file at the exact saved path counts. A symbolic link there (for example one
+      // that points at a report saved elsewhere) is not "already saved" and is refused.
+      if (existing.isFile() && options.skipExisting?.has(entry.filePath) === true) {
         skipped.add(entry.filePath);
         continue;
       }

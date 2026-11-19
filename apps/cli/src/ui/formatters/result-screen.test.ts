@@ -312,7 +312,7 @@ describe("grouped test findings", () => {
     expect(text).toContain(
       "테스트·fixture·vendored 코드 (심각도가 낮은 발견 항목 8건은 나열하지 않음)",
     );
-    expect(text).toContain("이 코드의 항목이 5건을 넘어 접었습니다");
+    expect(text).toContain("이 코드의 심각도가 낮은 항목이 5건을 넘어 접었습니다");
     expect(text).toContain("분류별: 테스트 8");
     expect(text).toContain("--all-findings");
     expect(text).not.toContain("test/case0.test.ts");

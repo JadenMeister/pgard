@@ -26,7 +26,7 @@ export interface ReportRequest {
 }
 
 export type ParsedCommand =
-  | { kind: "menu" }
+  | { kind: "menu"; lang?: RuleLocale }
   | { kind: "help"; topic: HelpTopic }
   | { kind: "version" }
   | { kind: "project-verify"; noBrowser: boolean }
@@ -435,8 +435,9 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
   if (command === undefined) {
     if (split.isHelp) return { kind: "help", topic: "main" };
     if (split.isVersion) return { kind: "version" };
-    rejectOptions(split, [], "main", "pgard");
-    return { kind: "menu" };
+    rejectOptions(split, ["--lang"], "main", "pgard");
+    const lang = parseLangOption(split, "--lang", "main");
+    return { kind: "menu", ...(lang === undefined ? {} : { lang }) };
   }
   if (command === "help") {
     if (split.options.size > 0 || FLAG_OPTIONS.some(([, key]) => split[key])) {

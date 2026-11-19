@@ -2,8 +2,9 @@ import { SEVERITIES, type Finding, type FindingStatus } from "@pgard/findings";
 
 /**
  * Findings from test, fixture or vendored code are collapsed into a summary when there are MORE
- * than this many of them (5 are listed, 6 are collapsed). Findings in real code are never
- * collapsed, whatever their number.
+ * than this many lower-severity (medium, low, info) ones (5 are listed, 6 are collapsed).
+ * Critical and high findings and findings in real code are never collapsed, and do not count
+ * towards the threshold.
  */
 export const COLLAPSE_THRESHOLD = 5;
 
@@ -110,7 +111,7 @@ function tally(keys: readonly string[]): Array<{ key: string; count: number }> {
     .sort((a, b) => b.count - a.count || compareText(a.key, b.key));
 }
 
-/** Whether test, fixture and vendored findings are summarized instead of listed. */
+/** Whether lower-severity test, fixture and vendored findings are summarized instead of listed. */
 export function shouldCollapse(nonRealCount: number, allFindings: boolean): boolean {
   return !allFindings && nonRealCount > COLLAPSE_THRESHOLD;
 }

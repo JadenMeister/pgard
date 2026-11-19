@@ -7,11 +7,17 @@ const LABEL = /^(?:[!-]|\[[^\]]*\]|[\p{L}]{1,14}:) /u;
 const URL_WORD = /^\(?https?:\/\//;
 /**
  * PGARD's own reference links (the standards listed with a rule). They are fixed and may stay
- * whole, even when they run past the width, because a cut link cannot be copied. Any other URL
- * (it can come from the scanned code or a web page) is shortened with an ellipsis.
+ * whole, even when they run past the width, because a cut link cannot be copied. Only the exact
+ * shapes PGARD writes are matched (an OWASP Top 10 category, a CWE page, a SEI CERT Java rule),
+ * so scanned text that merely starts with one of these hosts is shortened like any other URL.
  */
-const STANDARDS_URL =
-  /^\(?https:\/\/(?:top10\.owasp\.org|owasp\.org|cwe\.mitre\.org|cmu-sei\.github\.io|wiki\.sei\.cmu\.edu)\//;
+const STANDARDS_URL = new RegExp(
+  "^\\(?https://(?:" +
+    "top10\\.owasp\\.org/\\d{4}/A\\d{2}_\\d{4}-[A-Za-z_]{1,80}/" +
+    "|cwe\\.mitre\\.org/data/definitions/\\d{1,6}\\.html" +
+    "|cmu-sei\\.github\\.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/[a-z0-9-]{1,80}/[a-z0-9-]{1,40}" +
+    ")[).,;]?$",
+);
 /** Other URLs are kept up to this many times the width. */
 const URL_WIDTH_FACTOR = 2;
 

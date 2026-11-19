@@ -174,7 +174,7 @@ describe("plain output", () => {
             Fix: Use parameters
 
       Test, fixture and vendored code (6 lower-severity findings not listed)
-        Collapsed because there are more than 5 in this code. Findings in your own code, and critical or high findings anywhere, are always listed. Review these too: a real value committed in a test is still exposed.
+        Collapsed because there are more than 5 lower-severity findings in this code. Findings in your own code, and critical or high findings anywhere, are always listed. Review these too: a real value committed in a test is still exposed.
         By context: test 6
         By rule: PG-SQL-001 x6
         By severity: Low 6
@@ -202,16 +202,17 @@ describe("severe findings in test code", () => {
             context: "test",
             confidence: "low",
           }),
-          ...testCode(5),
+          ...testCode(6),
         ],
       }),
       plain,
     );
     expect(text).toContain("src/auth.test.ts:12");
     expect(text).toContain("Hardcoded API key");
-    expect(text).toContain("5 lower-severity findings not listed");
+    expect(text).toContain("6 lower-severity findings not listed");
     expect(text).not.toContain("test/case0.test.ts");
-    expect(text).toContain("plus 6 in test or fixture code (1 critical)");
+    expect(text).toContain("plus 7 in test or fixture code (1 critical)");
+    expect(text).toContain("In test or fixture code (7)");
     expect(text).toContain("a real value committed in a test is still exposed");
   });
 
@@ -224,13 +225,38 @@ describe("severe findings in test code", () => {
             severity: "high",
             confidence: "low",
           }),
-          ...testCode(5),
+          ...testCode(6),
         ],
       }),
       plain,
     );
     expect(text).toContain("node_modules/x/a.js:3");
-    expect(text).toContain("5 lower-severity findings not listed");
+    expect(text).toContain("6 lower-severity findings not listed");
+  });
+
+  it("does not count severe findings towards the collapse threshold", () => {
+    const severe = Array.from({ length: 6 }, (_, n) =>
+      at(`test/high${n}.test.ts`, 1, {
+        ruleId: `PG-HIGH-${n}`,
+        title: `Severe ${n}`,
+        severity: "high",
+        context: "test",
+        confidence: "low",
+      }),
+    );
+    // 6 high and 1 low: the single low finding is still listed.
+    const one = formatScanResult(testResult({ findings: [...severe, ...testCode(1)] }), plain);
+    expect(one).not.toContain("not listed");
+    expect(one).toContain("test/case0.test.ts:1");
+    // 6 high and 5 low: five are still listed.
+    const five = formatScanResult(testResult({ findings: [...severe, ...testCode(5)] }), plain);
+    expect(five).not.toContain("not listed");
+    // 6 high and 6 low: the lows collapse, the highs stay, and the heading counts all 12.
+    const six = formatScanResult(testResult({ findings: [...severe, ...testCode(6)] }), plain);
+    expect(six).toContain("6 lower-severity findings not listed");
+    expect(six).not.toContain("test/case0.test.ts");
+    for (let n = 0; n < 6; n += 1) expect(six).toContain(`test/high${n}.test.ts:1`);
+    expect(six).toContain("In test or fixture code (12)");
   });
 });
 

@@ -188,6 +188,59 @@ describe("main", () => {
     expect(captured.stdout()).toContain("(exit status 130)");
   }, 10_000);
 
+  describe("menu language (#300)", () => {
+    async function openMenu(
+      argv: string[],
+      env: Record<string, string>,
+    ): Promise<{ out: string; code: number }> {
+      const captured = createTestIo({ isTTY: true, env });
+      const { stdin } = captured;
+      stdin.setRawMode = () => undefined;
+      const running = main(argv, captured.io, {
+        deps: createTestDeps({
+          createSessionProvider: () => (async () => ({})) as never,
+          credentialStore: createSignedInCredentialStore(),
+        }),
+        interrupts: noInterrupts,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      stdin.write("\u001b"); // Esc on the menu = quit
+      const code = await running;
+      return { out: captured.stdout(), code };
+    }
+
+    it("follows PGARD_LANG and --lang", async () => {
+      for (const [argv, env] of [
+        [[], { PGARD_LANG: "ko" }],
+        [["--lang", "ko"], {}],
+      ] as const) {
+        const { out, code } = await openMenu([...argv], { ...env });
+        expect(code).toBe(0);
+        expect(out).toContain("프로젝트 확인");
+        expect(out).toContain("종료");
+        expect(out).not.toContain("Verify project");
+      }
+    }, 10_000);
+
+    it("stays English by default and with --lang en over PGARD_LANG=ko", async () => {
+      const plain = await openMenu([], { LC_ALL: "C" });
+      expect(plain.out).toContain("Verify project");
+      expect(plain.out).not.toContain("프로젝트 확인");
+      const forced = await openMenu(["--lang", "en"], { PGARD_LANG: "ko" });
+      expect(forced.out).toContain("Verify project");
+    }, 10_000);
+
+    it("says in Korean that the menu needs a terminal", async () => {
+      const captured = createTestIo({ env: { PGARD_LANG: "ko" } });
+      const code = await main([], captured.io, {
+        deps: createTestDeps(),
+        interrupts: noInterrupts,
+      });
+      expect(code).toBe(2);
+      expect(captured.stderr()).toContain("터미널이 필요합니다");
+    });
+  });
+
   it("exports the default dependencies for integration tests", () => {
     const deps = createDefaultDeps();
     expect(typeof deps.runScan).toBe("function");
