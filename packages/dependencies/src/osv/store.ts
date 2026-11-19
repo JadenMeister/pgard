@@ -285,9 +285,12 @@ export async function acquireUpdateLock(
       // modification time, so a lock another run created in between (also an empty one it has
       // not written its pid into yet) is never removed.
       const current = await readFile(lockPath, "utf8").catch(() => null);
-      const after = await lockIdentity(lockPath).catch(() => null);
-      if (current === heldText && after !== null && sameLock(judged, after)) {
-        await rm(lockPath, { force: true });
+      if (current === heldText) {
+        // Re-checked immediately before the delete. A release and re-create inside the few
+        // microseconds between this stat and the `rm` is an accepted window: it needs a run
+        // that finishes its whole update and another that starts, both in that instant.
+        const after = await lockIdentity(lockPath).catch(() => null);
+        if (after !== null && sameLock(judged, after)) await rm(lockPath, { force: true });
       }
     } finally {
       await rm(marker, { force: true });

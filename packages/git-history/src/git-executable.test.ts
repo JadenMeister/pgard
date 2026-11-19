@@ -3,9 +3,14 @@ import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { resolveGitDetailed, resolveGitExecutable, trustedPathEntries } from "./git-executable.js";
+import {
+  resolveGitDetailed,
+  resolveGitExecutable,
+  trustedPathEntries,
+  type GitResolution,
+} from "./git-executable.js";
 import { findGitRoot } from "./git-root.js";
-import { buildGitEnv, runGit } from "./run-git.js";
+import { buildGitEnv, GIT_ONLY_INSIDE_REPOSITORY_MESSAGE, runGit } from "./run-git.js";
 import { createGitFixture, type GitFixture } from "./test-support/git-fixture.js";
 
 describe("trustedPathEntries", () => {
@@ -101,6 +106,47 @@ describe("resolveGitExecutable", () => {
       program: null,
       isOnlyInsideRepository: false,
     });
+  });
+
+  it("the 'only git is inside the repository' message names the cause and the real fix, no path", () => {
+    expect(GIT_ONLY_INSIDE_REPOSITORY_MESSAGE).toBe(
+      "git could not be started: the only git on PATH is inside the scanned folder or its repository, so it was not run. Install git machine-wide, outside the scanned folder.",
+    );
+    expect(GIT_ONLY_INSIDE_REPOSITORY_MESSAGE).not.toMatch(/[A-Za-z]:\\|\/Users\/|run pgard/);
+  });
+
+  it("caches successes per folder and PATH, never a missing git", () => {
+    const cache = new Map<string, GitResolution>();
+    const present = new Set<string>();
+    let lookups = 0;
+    const base = {
+      platform: "win32",
+      processCwd: "C:\\elsewhere",
+      realPath: (value: string): string => value,
+      hasGitEntry: () => false,
+      cache,
+    } as const;
+    const resolve = (cwd: string, pathValue: string) =>
+      resolveGitDetailed({
+        ...base,
+        cwd,
+        env: { Path: pathValue },
+        isFile: (file: string) => {
+          lookups += 1;
+          return present.has(file);
+        },
+      }).program;
+    // No git yet: not cached, so a git installed later is found at once.
+    expect(resolve("C:\\a", "C:\\tools")).toBeNull();
+    present.add("C:\\tools\\git.exe");
+    expect(resolve("C:\\a", "C:\\tools")).toBe("C:\\tools\\git.exe");
+    const afterFirst = lookups;
+    expect(resolve("C:\\a", "C:\\tools")).toBe("C:\\tools\\git.exe");
+    expect(lookups).toBe(afterFirst); // served from the cache
+    // The key matters: another PATH or another folder is looked up again.
+    expect(resolve("C:\\a", "C:\\other")).toBeNull();
+    expect(resolve("C:\\tools", "C:\\tools")).toBeNull(); // PATH entry is the scanned folder
+    expect(resolve("C:\\a", "C:\\tools")).toBe("C:\\tools\\git.exe");
   });
 
   describe("hostile spellings of a PATH entry (#211)", () => {

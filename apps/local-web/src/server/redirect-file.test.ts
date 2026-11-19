@@ -170,12 +170,26 @@ describe("isOurRedirectFile names and quote look-alikes (#430)", () => {
       "\u02ca",
       "\u02cb",
       "\u02ee",
+      "\u01c0",
+      "\u01c3",
+      "\u02c6",
+      "\u02c7",
       "\uff02",
       '"',
       "'",
       "`",
     ]) {
       expect(check(`/home/u${mark}x`)).toBe(false);
+      expect(check(`C:\\Users\\u${mark}x`, "win32")).toBe(false);
     }
+  });
+
+  it("refuses the combining look-alikes on Windows only; Hangul and accents stay", () => {
+    for (const mark of ["\u0300", "\u0302", "\u030e"]) {
+      expect(check(`C:\\Users\\e${mark}x`, "win32")).toBe(false);
+    }
+    expect(check("/home/e\u0300x")).toBe(true); // an NFD grave on macOS or Linux
+    expect(check("C:\\Users\\\ud55c\uae00\u00e9\u00fc", "win32")).toBe(true);
+    expect(check("C:\\Users\\e\u0301x", "win32")).toBe(true);
   });
 });

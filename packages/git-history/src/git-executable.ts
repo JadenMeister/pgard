@@ -14,6 +14,8 @@ export interface GitExecutableOptions {
   realPath?: (value: string) => string;
   /** Test hook; whether a `.git` entry exists at the path. Defaults to a real check. */
   hasGitEntry?: (value: string) => boolean;
+  /** Test hook: use this cache (keyed by folder, current directory and PATH) even with hooks. */
+  cache?: Map<string, GitResolution>;
 }
 
 const win = path.win32;
@@ -131,14 +133,15 @@ export function resolveGitDetailed(options: GitExecutableOptions = {}): GitResol
     options.realPath !== undefined ||
     options.hasGitEntry !== undefined ||
     options.processCwd !== undefined;
-  if (isInjected) return lookUp(options);
-  const env = process.env;
-  const key = `${options.cwd ?? ""}\0${process.cwd()}\0${env.Path ?? env.PATH ?? env.path ?? ""}`;
-  let found = resolutionCache.get(key);
-  if (found === undefined) {
-    found = lookUp(options);
-    resolutionCache.set(key, found);
-  }
+  const cache = options.cache ?? (isInjected ? null : resolutionCache);
+  if (cache === null) return lookUp(options);
+  const env = options.env ?? process.env;
+  const key = `${options.cwd ?? ""}\0${options.processCwd ?? process.cwd()}\0${env.Path ?? env.PATH ?? env.path ?? ""}`;
+  const known = cache.get(key);
+  if (known !== undefined) return known;
+  const found = lookUp(options);
+  // Only a success is remembered: a git installed later must be found without a restart.
+  if (found.program !== null) cache.set(key, found);
   return found;
 }
 

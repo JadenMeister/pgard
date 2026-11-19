@@ -226,6 +226,16 @@ export async function redirectRoot(
   return cache;
 }
 
+/**
+ * Letters that Windows best-fit code pages (874, 932-950, 1250-1258) turn into a shell-special
+ * ASCII character: quotes and backtick (U+02B9 to U+02BC, U+02C8, U+02CA, U+02CB, U+02EE),
+ * `|` (U+01C0), `!` (U+01C3) and `^` (U+02C6, U+02C7). Other letters stay allowed (Japanese
+ * names use U+3005 and U+30FC).
+ */
+const QUOTE_LOOKALIKES = /[ǀǃʹ-ʼˆ-ˈˊˋˮ]/u;
+/** Combining marks that best-fit to `"` (U+030E), backtick (U+0300) and `^` (U+0302). */
+const WINDOWS_MARK_LOOKALIKES = /[̀̂̎]/u;
+
 /** `pgard-open-` plus the six characters `mkdtemp` adds. */
 const REDIRECT_DIR_NAME = /^pgard-open-[A-Za-z0-9]{6}$/;
 
@@ -248,7 +258,10 @@ export function isOurRedirectFile(
   // #430: modifier letters that a legacy code page best-fits to a quote or backtick (U+02B9 to
   // U+02BC, U+02C8, U+02CA, U+02CB, U+02EE). Other modifier letters stay: Japanese names use
   // U+3005 and U+30FC.
-  if (/[ʹ-ʼˈˊˋˮ]/u.test(filePath)) return false;
+  if (QUOTE_LOOKALIKES.test(filePath)) return false;
+  // Combining marks that best-fit to a quote, backtick or caret are refused only on Windows,
+  // where the best-fit tables apply (a macOS NFD path legitimately holds U+0300 for a grave).
+  if (platform === "win32" && WINDOWS_MARK_LOOKALIKES.test(filePath)) return false;
   return (
     paths.dirname(filePath) === redirectDir &&
     paths.basename(filePath) === REDIRECT_FILE_NAME &&

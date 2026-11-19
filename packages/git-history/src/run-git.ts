@@ -2,6 +2,10 @@ import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
 import { resolveGitDetailed } from "./git-executable.js";
 
+/** Shown when the only `git.exe` on PATH sits inside the scanned folder or its repository. */
+export const GIT_ONLY_INSIDE_REPOSITORY_MESSAGE =
+  "git could not be started: the only git on PATH is inside the scanned folder or its repository, so it was not run. Install git machine-wide, outside the scanned folder.";
+
 export interface GitRunOptions {
   cwd: string;
   /** Maximum stdout bytes; larger output fails instead of being buffered without bound. */
@@ -397,7 +401,7 @@ function execGit(args: readonly string[], options: GitRunOptions): Promise<strin
       reject(
         new GitCommandError(
           resolution.isOnlyInsideRepository
-            ? "git could not be started: the only git on PATH is inside the scanned folder or its repository, so it was not run. Install git for all users (not inside the repository), or run pgard from inside the repository."
+            ? GIT_ONLY_INSIDE_REPOSITORY_MESSAGE
             : "git could not be started",
           null,
         ),
