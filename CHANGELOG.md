@@ -4,6 +4,10 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Security
+
+- Hardening follow-ups (#430, #395, #211, #214): `pgard web` on Linux refuses a `~/.cache` or `~/.cache/pgard` that is writable by others (group-write of your own group is fine) or links into a shared folder, and its opener check refuses the letters that look like quote marks in some code pages (and, on Windows, combining marks that look like a quote, backtick or caret) in the redirect path; on Windows a git found only inside the scanned repository gives a message saying why and how to fix it; the lockfile reader always checks that the opened file is the one inspected (device and inode); on Windows the git lookup also compares real paths, ignores trailing dots and spaces and excludes the repository root; `pgard advisories update` works on volumes without hard links (a just-created empty lock now counts as held for 5 seconds) and removes old lock temp files.
+
 ### Changed
 
 - A file name with a zero-width character (U+200B to U+200D, U+2060, U+FEFF) keeps it in the reported path as a visible `\uXXXX` escape instead of losing it, so `a<ZWSP>b.js` no longer looks like `ab.js` (#376). A backslash in a POSIX file name is no longer turned into `/` in a finding path.
