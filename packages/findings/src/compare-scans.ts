@@ -170,7 +170,7 @@ function normalizeEvidence(finding: Finding, family: Family): string {
   // The cookie name that newer evidence carries (`res.cookie(session-like name "sid") ...`, #410)
   // is not part of the identity, so a baseline or comparison made with an older version still
   // matches. The path and the rule already tell cookies of one file apart as before.
-  text = text.replace(COOKIE_NAME, "$1");
+  if (finding.ruleId === "PG-COOKIE-001") text = text.replace(COOKIE_NAME, "$1");
   if (family === "web") text = text.replace(QUOTED_VERSION, '""');
   return text.replace(LINE_REFERENCE, "").replace(WHITESPACE, " ").trim();
 }

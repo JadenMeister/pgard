@@ -321,6 +321,11 @@ describe("compareScans", () => {
     const other = finding({ ...base, evidence: "res.cookie(session-like name) without secure" });
     expect(findingIdentity(other)).not.toBe(findingIdentity(old));
     expect(compareScans(scan([old]), scan([named])).unchanged).toHaveLength(1);
+    // The same text in another rule's evidence is left alone.
+    const sql = (evidence: string) => finding({ ruleId: "PG-SQL-001", evidence });
+    expect(findingIdentity(sql('res.cookie(session-like name "sid") x'))).not.toBe(
+      findingIdentity(sql("res.cookie(session-like name) x")),
+    );
   });
 
   it("is deterministic and does not mutate its inputs", () => {

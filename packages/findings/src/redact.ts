@@ -376,7 +376,7 @@ export function redactEvidence(evidence: string, options: RedactEvidenceOptions 
  * dropped (`null`) rather than reported, and control, zero-width and bidi characters (the set
  * `redactEvidence` removes) are marked as visible `\uXXXX` text, so a file name cannot drive a
  * terminal or display as another name while two names still stay apart. A file name that literally
- * contains the text `​` still reads like such a mark: the escape cannot be told apart from it
+ * contains the six characters "backslash, u, 2, 0, 0, b" (the escape of U+200B) still reads like such a mark: the escape cannot be told apart from it
  * without changing the path every time it is redacted again (it is, on its way out), so that
  * name is a known, accepted ambiguity.
  */
