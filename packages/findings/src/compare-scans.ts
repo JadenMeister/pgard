@@ -153,6 +153,9 @@ function webUrl(raw: string | null): string {
   }
 }
 
+const COOKIE_NAME =
+  /(\((?:session-like name|csrf token cookie|session or token value)) "[^"\n]{1,64}"/;
+
 function normalizeEvidence(finding: Finding, family: Family): string {
   if (finding.ruleId === HYGIENE_RULE) return "";
   // A dependency finding is the same issue as long as package, version and advisory are the same;
@@ -164,6 +167,10 @@ function normalizeEvidence(finding: Finding, family: Family): string {
   // Redact again: the stored text should already be clean, but identity must never depend on
   // (or hash) anything a redactor would have removed.
   let text = redactEvidence(finding.evidence);
+  // The cookie name that newer evidence carries (`res.cookie(session-like name "sid") ...`, #410)
+  // is not part of the identity, so a baseline or comparison made with an older version still
+  // matches. The path and the rule already tell cookies of one file apart as before.
+  text = text.replace(COOKIE_NAME, "$1");
   if (family === "web") text = text.replace(QUOTED_VERSION, '""');
   return text.replace(LINE_REFERENCE, "").replace(WHITESPACE, " ").trim();
 }

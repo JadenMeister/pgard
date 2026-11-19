@@ -50,9 +50,9 @@ function manifestScope(manifestPath: string): string {
 }
 
 /**
- * A Java or Kotlin framework is named for a language only when its manifest speaks for at least
- * one file of that language (a Spring module next to a Ktor module must not label the Ktor files
- * Spring, #303). Other languages keep the project-wide reading.
+ * A Java or Kotlin manifest speaks for the files of that language below its directory (a Spring
+ * module next to a Ktor module must not label the Ktor files Spring, #303). Other languages keep
+ * the project-wide reading.
  */
 function appliesToFiles(manifestPath: string, language: TreeSitterLanguage, walk: WalkResult) {
   if (language !== "java" && language !== "kotlin") return true;
@@ -72,18 +72,20 @@ export async function detectLanguageTrack(walk: WalkResult): Promise<LanguageTra
       ? await detectFrameworks(walk.trackManifests)
       : { frameworks: [], issues: [] as ManifestIssue[] };
   return {
-    languages: present.map((language) => ({
-      language,
-      files: walk.trackFiles[language].length,
-      frameworks: [
-        ...new Set(
-          frameworks
-            .filter((entry) => FRAMEWORK_LANGUAGES[entry.framework].includes(language))
-            .filter((entry) => appliesToFiles(entry.manifestPath, language, walk))
-            .map((entry) => entry.framework),
-        ),
-      ],
-    })),
+    languages: present.map((language) => {
+      const named = frameworks.filter((entry) =>
+        FRAMEWORK_LANGUAGES[entry.framework].includes(language),
+      );
+      // A manifest that speaks for files of this language wins. When none of them names a
+      // framework (it comes from a parent pom, buildSrc or a root build file), every manifest
+      // counts, so a label is never lost.
+      const scoped = named.filter((entry) => appliesToFiles(entry.manifestPath, language, walk));
+      return {
+        language,
+        files: walk.trackFiles[language].length,
+        frameworks: [...new Set((scoped.length > 0 ? scoped : named).map((e) => e.framework))],
+      };
+    }),
     manifestIssues: issues,
     truncated: walk.trackTruncated,
   };

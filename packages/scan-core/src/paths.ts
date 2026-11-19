@@ -11,7 +11,7 @@ export function toRepositoryRelativePath(projectRoot: string, filePath: string):
   const relative = isAbsolute ? path.relative(projectRoot, filePath) : filePath;
   // A backslash is a path separator only on Windows or in a Windows path. In a POSIX file name it
   // is an ordinary character: turning it into `/` would merge `a\\b.js` with the nested `a/b.js`.
-  const backslashIsSeparator = path.sep === "\\" || path.win32.isAbsolute(filePath);
+  const backslashIsSeparator = path.sep === "\\" || /^(?:[A-Za-z]:|\\\\)/.test(filePath);
   const slashed = backslashIsSeparator
     ? relative.split(path.sep).join("/").replace(/\\/g, "/")
     : relative;

@@ -186,6 +186,30 @@ describe("more manifests", () => {
     expect(byLanguage("java")).toEqual(["Spring"]);
   });
 
+  it("keeps the label when the framework comes from a sibling parent pom (#303)", async () => {
+    const root = project({
+      "parent/pom.xml":
+        "<project><modules><module>../app</module></modules><dependencies><dependency><groupId>org.springframework.boot</groupId></dependency></dependencies></project>",
+      "app/pom.xml": "<project><artifactId>app</artifactId></project>",
+      "app/src/Main.java": "class Main {}\n",
+    });
+    const detection = await detectLanguageTrack(await walkSourceTree(root));
+    expect(detection.languages.find((e) => e.language === "java")?.frameworks).toEqual(["Spring"]);
+  });
+
+  it("keeps the label when the framework comes from buildSrc", async () => {
+    const root = project({
+      "buildSrc/build.gradle.kts":
+        'dependencies { implementation("org.springframework.boot:x") }\n',
+      "svc/build.gradle.kts": 'plugins { id("conventions") }\n',
+      "svc/src/App.kt": "fun main() {}\n",
+    });
+    const detection = await detectLanguageTrack(await walkSourceTree(root));
+    expect(detection.languages.find((e) => e.language === "kotlin")?.frameworks).toEqual([
+      "Spring",
+    ]);
+  });
+
   it("applies a root manifest to every module", async () => {
     const root = project({
       "build.gradle":

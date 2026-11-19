@@ -307,6 +307,22 @@ describe("compareScans", () => {
     });
   });
 
+  it("ignores the cookie name in evidence, so an older baseline still matches (#410)", () => {
+    const base: Partial<Finding> = { ruleId: "PG-COOKIE-001" };
+    const old = finding({
+      ...base,
+      evidence: "res.cookie(session-like name) without httpOnly, secure",
+    });
+    const named = finding({
+      ...base,
+      evidence: 'res.cookie(session-like name "sid") without httpOnly, secure',
+    });
+    expect(findingIdentity(named)).toBe(findingIdentity(old));
+    const other = finding({ ...base, evidence: "res.cookie(session-like name) without secure" });
+    expect(findingIdentity(other)).not.toBe(findingIdentity(old));
+    expect(compareScans(scan([old]), scan([named])).unchanged).toHaveLength(1);
+  });
+
   it("is deterministic and does not mutate its inputs", () => {
     const previous = scan([finding({ line: 5 }), finding({ line: 7 })]);
     const current = scan([finding({ line: 8 }), finding({ line: 6 })]);

@@ -375,7 +375,10 @@ export function redactEvidence(evidence: string, options: RedactEvidenceOptions 
  * Location paths are repository-relative: secrets in file names are masked, an absolute path is
  * dropped (`null`) rather than reported, and control, zero-width and bidi characters (the set
  * `redactEvidence` removes) are marked as visible `\uXXXX` text, so a file name cannot drive a
- * terminal or display as another name while two names still stay apart.
+ * terminal or display as another name while two names still stay apart. A file name that literally
+ * contains the text `​` still reads like such a mark: the escape cannot be told apart from it
+ * without changing the path every time it is redacted again (it is, on its way out), so that
+ * name is a known, accepted ambiguity.
  */
 export function redactLocationPath(
   locationPath: string | null,

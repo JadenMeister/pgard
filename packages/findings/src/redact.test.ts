@@ -281,6 +281,13 @@ describe("redactFinding locations (#54)", () => {
     }
   });
 
+  it("is idempotent for marked paths and leaves ordinary and non-Latin names readable (#376)", () => {
+    const marked = redactLocationPath("src/a\u200bb.js") as string;
+    expect(redactLocationPath(marked)).toBe(marked);
+    expect(redactLocationPath("src\\a.js")).toBe("src\\a.js");
+    expect(redactLocationPath("src/한글/café.js")).toBe("src/한글/café.js");
+  });
+
   it("still masks a secret split by zero-width characters in a path (#376)", () => {
     const secret = `ghp_${"a1B2c3D4e5F6g7H8i9J0".repeat(2)}`;
     const split = `${secret.slice(0, 10)}\u200b${secret.slice(10)}`;

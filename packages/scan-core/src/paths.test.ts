@@ -26,6 +26,8 @@ describe("toRepositoryRelativePath", () => {
     expect(toRepositoryRelativePath(root, "src\\a.ts")).not.toBe(
       toRepositoryRelativePath(root, "src/a.ts"),
     );
+    // An absolute POSIX path keeps its backslash too.
+    expect(toRepositoryRelativePath(root, "/work/app/p/a\\b.js")).toBe("p/a\\b.js");
     // A Windows absolute path is still a separator path (and escapes the root here).
     expect(toRepositoryRelativePath(root, "C:\\x\\y.ts")).toBeNull();
   });
