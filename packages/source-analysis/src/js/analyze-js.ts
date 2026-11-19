@@ -3659,6 +3659,13 @@ function analyzeJsSourceWith(
       : isSessionLike
         ? "session-like name"
         : "session or token value";
+    // The plain literal name goes into the evidence, so a fixer (and its reader) can check that the
+    // line being edited is the cookie the finding is about. Only a short name of plain characters:
+    // anything else stays out of the evidence.
+    const named =
+      nameNode !== undefined && ts.isStringLiteralLike(nameNode) && /^[\w.-]{1,64}$/.test(nameText)
+        ? `${kind} ${JSON.stringify(nameText)}`
+        : kind;
     let resolved: Map<string, ts.Expression> | null = new Map();
     if (options) resolved = resolveOptions(options, 0);
     if (!resolved) {
@@ -3669,7 +3676,7 @@ function analyzeJsSourceWith(
           severity: "low",
           status: "suspected",
           confidence: "low",
-          flow: `${api}(${kind}) with options not resolvable (imported/computed); flags unverified`,
+          flow: `${api}(${named}) with options not resolvable (imported/computed); flags unverified`,
         },
         `${api}:${nameText}`,
       );
@@ -3696,7 +3703,7 @@ function analyzeJsSourceWith(
         severity,
         status: "suspected",
         confidence: isStrongName ? "medium" : "low",
-        flow: `${api}(${kind}) without ${missing.join(", ")}`,
+        flow: `${api}(${named}) without ${missing.join(", ")}`,
       },
       `${api}:${nameText}`,
     );

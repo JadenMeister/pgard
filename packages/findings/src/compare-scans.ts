@@ -153,6 +153,9 @@ function webUrl(raw: string | null): string {
   }
 }
 
+const COOKIE_NAME =
+  /(\((?:session-like name|csrf token cookie|session or token value)) "[^"\n]{1,64}"/;
+
 function normalizeEvidence(finding: Finding, family: Family): string {
   if (finding.ruleId === HYGIENE_RULE) return "";
   // A dependency finding is the same issue as long as package, version and advisory are the same;
@@ -164,6 +167,10 @@ function normalizeEvidence(finding: Finding, family: Family): string {
   // Redact again: the stored text should already be clean, but identity must never depend on
   // (or hash) anything a redactor would have removed.
   let text = redactEvidence(finding.evidence);
+  // The cookie name that newer evidence carries (`res.cookie(session-like name "sid") ...`, #410)
+  // is not part of the identity, so a baseline or comparison made with an older version still
+  // matches. The path and the rule already tell cookies of one file apart as before.
+  if (finding.ruleId === "PG-COOKIE-001") text = text.replace(COOKIE_NAME, "$1");
   if (family === "web") text = text.replace(QUOTED_VERSION, '""');
   return text.replace(LINE_REFERENCE, "").replace(WHITESPACE, " ").trim();
 }
@@ -326,6 +333,8 @@ const NOTE_ONLY_AREAS: ReadonlySet<string> = new Set([
 const BUILD_OUTPUT_AREA = "source:build-output";
 const XML_AREA = "source:xml-skipped";
 const SPECIAL_AREA = "source:special-files";
+const ORM_AREA_PREFIX = "source:orm:";
+const SQL_RULE_PREFIX = "PG-SQL-";
 
 /** The path has a directory segment that the source walk skips by name (`dist`, `build`, ...). */
 function isUnderSkippedDirectory(findingPath: string | null | undefined): boolean {
@@ -430,6 +439,9 @@ function isSkipSignal(area: string, ctx: Context, finding: Finding): boolean {
     );
   }
   if (NOTE_ONLY_AREAS.has(area)) return a?.note !== b?.note;
+  // An ORM that is not analyzed only leaves the SQL it runs unjudged: a Prisma or TypeORM project
+  // can still compare every other rule (#223). A SQL finding is held exactly as before.
+  if (area.startsWith(ORM_AREA_PREFIX) && !finding.ruleId.startsWith(SQL_RULE_PREFIX)) return false;
   if (entries.some((entry) => entry.status === "partial")) return true;
   const ran = (entry: Coverage | undefined) => entry?.status === "completed";
   if (ran(a) !== ran(b)) return true;

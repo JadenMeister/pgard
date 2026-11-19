@@ -1,4 +1,4 @@
-import { statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 
 export interface GitExecutableOptions {
@@ -10,6 +10,12 @@ export interface GitExecutableOptions {
   processCwd?: string;
   /** Test hook; defaults to a real `stat`. */
   isFile?: (filePath: string) => boolean;
+  /** Test hook; defaults to `realpathSync.native`. Throws when the path does not exist. */
+  realPath?: (value: string) => string;
+  /** Test hook; whether a `.git` entry exists at the path. Defaults to a real check. */
+  hasGitEntry?: (value: string) => boolean;
+  /** Test hook: use this cache (keyed by folder, current directory and PATH) even with hooks. */
+  cache?: Map<string, GitResolution>;
 }
 
 const win = path.win32;
@@ -22,9 +28,58 @@ function defaultIsFile(filePath: string): boolean {
   }
 }
 
+function defaultRealPath(value: string): string {
+  return realpathSync.native(value);
+}
+
+function defaultHasGitEntry(value: string): boolean {
+  return existsSync(win.join(value, ".git"));
+}
+
+/**
+ * Windows ignores trailing dots and spaces in a path segment (`C:\repo.\bin` is `C:\repo\bin`),
+ * so both spellings must compare the same.
+ */
+function stripTrailingDotsAndSpaces(value: string): string {
+  return win
+    .normalize(value)
+    .split(/[\\/]/)
+    .map((segment) =>
+      segment === "." || segment === ".." ? segment : segment.replace(/[. ]+$/, ""),
+    )
+    .join("\\");
+}
+
+const comparable = (value: string): string => win.resolve(stripTrailingDotsAndSpaces(value));
+
+/** `value` as it is spelled and as the file system resolves it (junctions, links, 8.3 names). */
+function spellings(value: string, realPath: (value: string) => string): string[] {
+  const result = [comparable(value)];
+  try {
+    result.push(comparable(realPath(value)));
+  } catch {
+    // Not on disk (or not readable): only the written form can be compared.
+  }
+  return result;
+}
+
 function isSameOrInside(candidate: string, base: string): boolean {
-  const relative = win.relative(win.resolve(base), win.resolve(candidate));
+  const relative = win.relative(base, candidate);
   return relative === "" || (!relative.startsWith("..") && !win.isAbsolute(relative));
+}
+
+/** The nearest folder at or above `start` that holds a `.git` entry, found without running git. */
+function repositoryRootAbove(
+  start: string,
+  hasGitEntry: (value: string) => boolean,
+): string | null {
+  let current = win.resolve(start);
+  for (;;) {
+    if (hasGitEntry(current)) return current;
+    const parent = win.dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
 }
 
 /**
@@ -55,18 +110,63 @@ export function trustedPathEntries(pathValue: string): string[] {
  * Elsewhere the working directory is not searched, so plain `"git"` is returned.
  */
 export function resolveGitExecutable(options: GitExecutableOptions = {}): string | null {
+  return resolveGitDetailed(options).program;
+}
+
+export interface GitResolution {
+  program: string | null;
+  /** A `git.exe` exists on PATH, but only inside the scanned folder or its repository. */
+  isOnlyInsideRepository: boolean;
+}
+
+/** One resolution per process, folder and PATH: it reads the file system for every PATH entry. */
+const resolutionCache = new Map<string, GitResolution>();
+
+/** `resolveGitExecutable`, also saying why nothing was found. Real lookups are cached. */
+export function resolveGitDetailed(options: GitExecutableOptions = {}): GitResolution {
   const platform = options.platform ?? process.platform;
-  if (platform !== "win32") return "git";
+  if (platform !== "win32") return { program: "git", isOnlyInsideRepository: false };
+  const isInjected =
+    options.platform !== undefined ||
+    options.env !== undefined ||
+    options.isFile !== undefined ||
+    options.realPath !== undefined ||
+    options.hasGitEntry !== undefined ||
+    options.processCwd !== undefined;
+  const cache = options.cache ?? (isInjected ? null : resolutionCache);
+  if (cache === null) return lookUp(options);
+  const env = options.env ?? process.env;
+  const key = `${options.cwd ?? ""}\0${options.processCwd ?? process.cwd()}\0${env.Path ?? env.PATH ?? env.path ?? ""}`;
+  const known = cache.get(key);
+  if (known !== undefined) return known;
+  const found = lookUp(options);
+  // Only a success is remembered: a git installed later must be found without a restart.
+  if (found.program !== null) cache.set(key, found);
+  return found;
+}
+
+function lookUp(options: GitExecutableOptions): GitResolution {
+  let isOnlyInsideRepository = false;
   const env = options.env ?? process.env;
   const pathValue = env.Path ?? env.PATH ?? env.path ?? "";
   const isFile = options.isFile ?? defaultIsFile;
-  const excluded = [options.cwd, options.processCwd ?? process.cwd()].filter(
+  const realPath = options.realPath ?? defaultRealPath;
+  const hasGitEntry = options.hasGitEntry ?? defaultHasGitEntry;
+  const bases = [options.cwd, options.processCwd ?? process.cwd()].filter(
     (value): value is string => typeof value === "string" && value.length > 0,
   );
+  // Started from a subfolder: the repository root is excluded too (#211), not only the subfolder.
+  const root = options.cwd ? repositoryRootAbove(options.cwd, hasGitEntry) : null;
+  if (root !== null) bases.push(root);
+  const excluded = bases.flatMap((base) => spellings(base, realPath));
   for (const directory of trustedPathEntries(pathValue)) {
-    if (excluded.some((base) => isSameOrInside(directory, base))) continue;
+    const entries = spellings(directory, realPath);
     const candidate = win.join(directory, "git.exe");
-    if (isFile(candidate)) return candidate;
+    if (entries.some((entry) => excluded.some((base) => isSameOrInside(entry, base)))) {
+      if (isFile(candidate)) isOnlyInsideRepository = true;
+      continue;
+    }
+    if (isFile(candidate)) return { program: candidate, isOnlyInsideRepository: false };
   }
-  return null;
+  return { program: null, isOnlyInsideRepository };
 }

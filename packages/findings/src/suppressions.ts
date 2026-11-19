@@ -286,16 +286,30 @@ export function suppressionNotices(
         text: `The suppression of ${where} matches ${entry.matched} findings.`,
       });
     }
-    if (entry.farExpiry) {
-      notices.push({
-        kind: "far",
-        ruleId: entry.ruleId,
-        path: entry.path,
-        ...(entry.expires === undefined ? {} : { expires: entry.expires }),
-        tone: "warning",
-        text: `The suppression of ${where} runs until ${entry.expires ?? "?"}, more than a year ahead (limit: ${MAX_SUPPRESSION_HORIZON_DAYS} days). Suppressions should be reviewed regularly.`,
-      });
-    }
+  }
+  const far = summary.entries.filter((entry) => entry.state === "active" && entry.farExpiry);
+  const [onlyFar] = far;
+  if (far.length === 1 && onlyFar !== undefined) {
+    const where = `${onlyFar.ruleId} for ${JSON.stringify(onlyFar.path)}`;
+    notices.push({
+      kind: "far",
+      ruleId: onlyFar.ruleId,
+      path: onlyFar.path,
+      ...(onlyFar.expires === undefined ? {} : { expires: onlyFar.expires }),
+      count: 1,
+      tone: "warning",
+      text: `The suppression of ${where} runs until ${onlyFar.expires ?? "?"}, more than a year ahead (limit: ${MAX_SUPPRESSION_HORIZON_DAYS} days). Suppressions should be reviewed regularly.`,
+    });
+  } else if (far.length > 1) {
+    // One line however many entries: up to 200 of them would otherwise bury the other notices.
+    const latest = far.map((entry) => entry.expires ?? "").reduce((a, b) => (b > a ? b : a));
+    notices.push({
+      kind: "far",
+      expires: latest,
+      count: far.length,
+      tone: "warning",
+      text: `${far.length} suppressions run more than a year ahead (the latest until ${latest}; limit: ${MAX_SUPPRESSION_HORIZON_DAYS} days). Suppressions should be reviewed regularly.`,
+    });
   }
   const undated = summary.entries.filter(
     (entry) => entry.state === "active" && entry.expires === undefined,

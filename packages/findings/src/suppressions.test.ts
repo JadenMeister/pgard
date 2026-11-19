@@ -383,6 +383,38 @@ describe("expiry horizon", () => {
     expect(notices[0]?.text).toContain("more than a year ahead");
   });
 
+  it("merges far-expiry notices into one line however many entries there are (#249)", () => {
+    const entries = Array.from({ length: 5 }, (_, index) =>
+      entry({
+        path: `dir${index}/**`,
+        expires: index === 3 ? "9999-12-31" : "2999-01-0" + (index + 1),
+      }),
+    );
+    const applied = applySuppressions([], entries, NOW);
+    const far = suppressionNotices({
+      suppressions: applied.summary ?? undefined,
+      findings: [],
+    }).filter((n) => n.kind === "far");
+    expect(far).toHaveLength(1);
+    expect(far[0]).toMatchObject({ count: 5, expires: "9999-12-31", tone: "warning" });
+    expect(far[0]?.ruleId).toBeUndefined();
+    expect(far[0]?.text).toContain("5 suppressions run more than a year ahead");
+  });
+
+  it("keeps the per-entry far notice for a single entry and ignores expired ones (#249)", () => {
+    const applied = applySuppressions(
+      [],
+      [entry({ expires: "9999-12-31" }), entry({ path: "old/**", expires: "2020-01-01" })],
+      NOW,
+    );
+    const far = suppressionNotices({
+      suppressions: applied.summary ?? undefined,
+      findings: [],
+    }).filter((n) => n.kind === "far");
+    expect(far).toHaveLength(1);
+    expect(far[0]).toMatchObject({ count: 1, path: "scripts/**" });
+  });
+
   it("does not call an expired entry far or undated", () => {
     const applied = applySuppressions([], [entry({ expires: "2020-01-01" })], NOW);
     expect(applied.summary?.entries[0]?.farExpiry).toBe(false);

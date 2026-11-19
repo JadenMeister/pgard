@@ -298,7 +298,7 @@ const ABSOLUTE_PATH_PATTERN = new RegExp(
  * from what it is, e.g. U+202E in a branch name). Shared with `sanitizeDisplayText`.
  */
 export const UNSAFE_DISPLAY_CHARACTERS =
-  "[\\u0000-\\u001f\\u007f-\\u009f\\u061c\\u200b-\\u200f\\u2028-\\u202e\\u2066-\\u2069]";
+  "[\\u0000-\\u001f\\u007f-\\u009f\\u061c\\u200b-\\u200f\\u2028-\\u202e\\u2060\\u2066-\\u2069\\ufeff]";
 const UNSAFE_CHARS = new RegExp(UNSAFE_DISPLAY_CHARACTERS, "g");
 
 /** `\u202e` for U+202E: the escape as visible text. */
@@ -375,17 +375,24 @@ export function redactEvidence(evidence: string, options: RedactEvidenceOptions 
  * Location paths are repository-relative: secrets in file names are masked, an absolute path is
  * dropped (`null`) rather than reported, and control, zero-width and bidi characters (the set
  * `redactEvidence` removes) are marked as visible `\uXXXX` text, so a file name cannot drive a
- * terminal or display as another name while two names still stay apart.
+ * terminal or display as another name while two names still stay apart. A file name that literally
+ * contains the six characters "backslash, u, 2, 0, 0, b" (the escape of U+200B) still reads like such a mark: the escape cannot be told apart from it
+ * without changing the path every time it is redacted again (it is, on its way out), so that
+ * name is a known, accepted ambiguity.
  */
 export function redactLocationPath(
   locationPath: string | null,
   projectRoot?: string,
 ): string | null {
   if (locationPath === null) return null;
-  const masked = scrubAbsolutePaths(redactSecrets(locationPath), projectRoot).replace(
-    UNSAFE_CHARS,
-    escapeCharacter,
-  );
+  // redactSecrets drops zero-width characters so they cannot split a token. When it masks
+  // nothing, keep the original text so those characters are escaped below (`a<ZWSP>b.js` stays
+  // apart from `ab.js`); when it masks a secret, its output (zero-width characters removed) is
+  // used, so an escape can never split a secret away from its pattern.
+  const withoutZeroWidth = locationPath.replace(ZERO_WIDTH, "");
+  const redacted = redactSecrets(withoutZeroWidth);
+  const source = redacted === withoutZeroWidth ? locationPath : redacted;
+  const masked = scrubAbsolutePaths(source, projectRoot).replace(UNSAFE_CHARS, escapeCharacter);
   if (
     masked.startsWith("/") ||
     /^[A-Za-z]:[\\/]/.test(masked) ||

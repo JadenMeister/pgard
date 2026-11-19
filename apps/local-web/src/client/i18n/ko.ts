@@ -249,8 +249,10 @@ export const ko: Messages = {
         `억제된 발견 항목 중 ${count}건이 높음 또는 치명적입니다(높음 ${high}건, 치명적 ${critical}건). "억제됨" 목록에 그대로 나열되어 있으니 pgard.config.json의 사유를 확인하세요.`,
       total: (count) =>
         `억제 항목이 몇 개든 합쳐서 발견 항목 ${count}건(10건 초과)이 억제되었습니다.`,
-      far: (ruleId, path, expires) =>
-        `${ruleId}의 억제 항목(${JSON.stringify(path)})은 ${expires}까지로 1년이 넘게 남았습니다. 억제 항목은 정기적으로 검토해야 합니다.`,
+      far: (ruleId, path, expires, count) =>
+        count > 1
+          ? `억제 항목 ${count}개가 1년이 넘게 남았습니다(가장 늦은 것은 ${expires}까지). 억제 항목은 정기적으로 검토해야 합니다.`
+          : `${ruleId}의 억제 항목(${JSON.stringify(path)})은 ${expires}까지로 1년이 넘게 남았습니다. 억제 항목은 정기적으로 검토해야 합니다.`,
       wildcard: (ruleId, path, count) =>
         `${ruleId}의 억제 항목이 ${JSON.stringify(path)}를 사용합니다. 모든 파일, 그 규칙의 모든 발견 항목에 해당합니다 (${count}건 억제).`,
       broad: (ruleId, path, count) =>
