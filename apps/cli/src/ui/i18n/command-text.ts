@@ -272,6 +272,8 @@ export interface CommandText {
     certNoneOther: (reason: string) => string;
     certIndirect: (refs: string) => string;
     certNote: string;
+    /** The severity column is the rule's default; a finding can differ. */
+    severityNote: string;
     /** Suffix of a direct CERT id that covers only one cause of the rule's findings. */
     certCause: Record<"weak-random" | "archive-entry" | "other-than-archive-entry", string>;
   };
@@ -585,6 +587,8 @@ overwritten. Saving inside the Git repository risks committing the report.`,
       "archive-entry": "archive entry (zip slip) findings only",
       "other-than-archive-entry": "findings other than archive entries",
     },
+    severityNote:
+      "The severity shown is the rule's default. A finding can be rated differently: for example critical when the value comes from request input, or lower when the value is only inferred.",
     certNote:
       "CERT Java links point to related rules of the SEI CERT Oracle Coding Standard for Java. They are not a compliance claim: PGARD checks only the weaknesses its own rules detect, not conformance to that standard.",
   },
@@ -897,6 +901,8 @@ Git 저장소 안에 저장하면 보고서가 커밋될 위험이 있습니다.
       "archive-entry": "압축 파일 항목(zip slip) 발견 항목만",
       "other-than-archive-entry": "압축 파일 항목이 아닌 발견 항목",
     },
+    severityNote:
+      "표시된 심각도는 규칙의 기본값입니다. 발견 항목은 다르게 평가될 수 있습니다. 예를 들어 값이 요청 입력에서 오면 치명적, 값이 추정일 뿐이면 더 낮게 평가합니다.",
     certNote:
       "CERT Java 링크는 SEI CERT Oracle Coding Standard for Java의 관련 규칙을 가리킬 뿐입니다. 준수(compliance)를 주장하지 않습니다. PGARD는 자체 규칙이 탐지하는 약점만 확인하며, 해당 표준의 준수 여부는 확인하지 않습니다.",
   },

@@ -38,7 +38,7 @@ import { parseCommandLine, UsageError, type ParsedCommand } from "./options.js";
 import { getRuleTextCatalog } from "./rule-texts.js";
 import { BACK, promptChoice, UserCancelledError } from "./ui/components/prompts.js";
 import { createStyle, safeText, shouldUseColor } from "./ui/formatters/style.js";
-import { cliText } from "./ui/i18n/cli-text.js";
+import { cliText, type MenuEntryId } from "./ui/i18n/cli-text.js";
 
 export { EXIT_CODES, type ExitCode } from "./exit-codes.js";
 export type { CliIo } from "./adapters/terminal.js";
@@ -98,22 +98,20 @@ async function runCommand(context: CommandContext, command: RunnableCommand): Pr
   }
 }
 
-const MENU_HELP = `Arrow keys move, Enter selects, Esc goes back, ? shows help, Ctrl+C asks to cancel.
-Every scan checks repository authorization again; only the GitHub sign-in is reused
-(from the OS keychain). Scan results are stored locally unless you pass --no-store
-(see pgard history clear); dashboard scans are never stored.`;
-
 const MENU_CHOICES: ReadonlyArray<{
+  id: MenuEntryId | "report" | "scanCode";
   label: string;
   hint: string;
   value: RunnableCommand | "quit";
 }> = [
   {
+    id: "verify",
     label: "Verify project",
     hint: "authorization checks",
     value: { kind: "project-verify", noBrowser: false },
   },
   {
+    id: "scanDefault",
     label: "Scan code + history",
     hint: "pgard scan",
     value: {
@@ -127,6 +125,7 @@ const MENU_CHOICES: ReadonlyArray<{
     },
   },
   {
+    id: "scanCode",
     label: "Scan the current files (code only)",
     hint: "pgard scan code --code-only",
     value: {
@@ -142,6 +141,7 @@ const MENU_CHOICES: ReadonlyArray<{
     },
   },
   {
+    id: "scanHistory",
     label: "Scan Git history",
     hint: "pgard scan history",
     value: {
@@ -155,6 +155,7 @@ const MENU_CHOICES: ReadonlyArray<{
     },
   },
   {
+    id: "scanWeb",
     label: "Scan local web service",
     hint: "pgard scan web",
     value: {
@@ -168,6 +169,7 @@ const MENU_CHOICES: ReadonlyArray<{
     },
   },
   {
+    id: "scanAll",
     label: "Scan all",
     hint: "code + history + web",
     value: {
@@ -181,11 +183,13 @@ const MENU_CHOICES: ReadonlyArray<{
     },
   },
   {
+    id: "report",
     label: "Build report from last scan",
     hint: "pgard report",
     value: { kind: "report", format: null, outputDir: null, noOpen: false },
   },
   {
+    id: "dashboard",
     label: "Open dashboard",
     hint: "local web app",
     value: {
@@ -196,9 +200,14 @@ const MENU_CHOICES: ReadonlyArray<{
       printUrl: false,
     },
   },
-  { label: "List rules", hint: "pgard rules list", value: { kind: "rules-list", language: null } },
-  { label: "Doctor", hint: "environment diagnosis", value: { kind: "doctor" } },
-  { label: "Quit", hint: "", value: "quit" },
+  {
+    id: "rules",
+    label: "List rules",
+    hint: "pgard rules list",
+    value: { kind: "rules-list", language: null },
+  },
+  { id: "doctor", label: "Doctor", hint: "environment diagnosis", value: { kind: "doctor" } },
+  { id: "quit", label: "Quit", hint: "", value: "quit" },
 ];
 
 /** The menu entries; the report and code-only entries have text in both languages. */
@@ -206,25 +215,23 @@ function menuChoicesFor(context: CommandContext): typeof MENU_CHOICES {
   const text = cliText(context.ruleLocale);
   const t = text.commands.reportCommand;
   return MENU_CHOICES.map((choice) => {
-    if (choice.value === "quit") return choice;
-    if (choice.value.kind === "report") return { ...choice, label: t.menuLabel, hint: t.menuHint };
-    if (choice.value.kind === "scan" && choice.value.variant === "code") {
-      return { ...choice, label: text.codeOnly.menuLabel };
-    }
-    return choice;
+    if (choice.id === "report") return { ...choice, label: t.menuLabel, hint: t.menuHint };
+    if (choice.id === "scanCode") return { ...choice, label: text.codeOnly.menuLabel };
+    const [label, hint] = text.menu.entries[choice.id];
+    return { ...choice, label, hint };
   });
 }
 
 async function runMenu(context: CommandContext): Promise<ExitCode> {
   if (context.keys === null) {
-    err(context, "The interactive menu needs a terminal. Run `pgard --help` for commands.");
+    err(context, cliText(context.ruleLocale).menu.needsTerminal);
     return EXIT_CODES.usage;
   }
   const prompts = {
     keys: context.keys,
     out: context.io.stdout,
     style: context.style,
-    helpText: MENU_HELP,
+    helpText: cliText(context.ruleLocale).menu.help,
   };
   // A first run (no stored sign-in) is walked through sign-in, App install and a first scan.
   await runGuidedFirstRun(context);
@@ -238,7 +245,7 @@ async function runMenu(context: CommandContext): Promise<ExitCode> {
     if (picked.kind === "dashboard") return lastExitCode;
     out(
       context,
-      context.style.dim(`\n(exit status ${lastExitCode}) Press any key to return to the menu.`),
+      context.style.dim(`\n${cliText(context.ruleLocale).menu.returnPrompt(lastExitCode)}`),
     );
     await context.keys.readKey();
   }

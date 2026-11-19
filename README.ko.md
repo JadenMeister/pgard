@@ -214,7 +214,7 @@ Common commands:
 
 Common options:
   --lang en|ko                  language of the screen, progress and rule texts
-                                (scan, report, rules list)
+                                (scan, report, rules list, and the menu)
   --format text|json|sarif      scan output (scan); html|pdf (report)
   --report html|pdf|both        save a report after a scan, with --output-dir DIR
                                 (scan only)
@@ -904,7 +904,7 @@ Java 또는 Kotlin에 적용되는 모든 규칙은 같은 약점을 다루는 S
 
 규칙 제목, 영향 설명, 조치 설명을 한국어나 영어로 볼 수 있습니다. 언어는 `--lang en|ko`, 환경 변수 `PGARD_LANG`(`en` 또는 `ko`), 시스템 로케일(`LC_ALL`, `LC_MESSAGES`, `LANG` 중 먼저 값이 있는 것이 결정하며 `ko`로 시작하면 한국어, 보통 이 변수가 없는 Windows에서는 런타임 로케일 사용), 마지막으로 영어 순서로 정해집니다. 값은 대소문자를 구분하지 않습니다(`KO`도 가능). `--lang`, `--report-lang`, `PGARD_LANG`에 잘못된 값을 주면 사용법 오류(종료 코드 2)이며, 언어 옵션이 있는 명령(`scan`, `rules list`, 메뉴)에서는 이 경우가 모두 사용법 오류입니다. `doctor`, `login`, `logout`은 `--lang` 옵션이 없지만 `PGARD_LANG`과 시스템 로케일을 똑같이 읽으며, `PGARD_LANG` 값이 잘못되어도 멈추지 않고 stderr에 한 줄을 출력한 뒤 시스템 언어를 사용합니다. `project verify`, `dashboard`, `advisories update`, `history clear`, `baseline`은 영어로 유지됩니다.
 
-- **터미널:** 검사 결과 화면 전체(제목, 라벨, 상태 단어, 차트, 안내, `testDirectories`가 발견 항목을 테스트 코드로 분류했다는 설명, 지난 검사와의 비교), stderr의 진행·상태 줄, 처음 실행 시의 저장 안내가 해당 언어로 표시되며, 규칙 제목·영향·조치 줄과 `pgard rules list`의 제목도 마찬가지입니다. 한국어 글자는 두 칸을 차지하므로 표시 너비 기준으로 맞춰 열이 어긋나지 않습니다. 번역하지 않는 것: 경로, 근거, `pgard.config.json`에서 인용한 사유, 검사가 쓴 coverage 비고, 권한 확인 사유, 표준의 공식 제목. `pgard doctor`, `pgard login`, `pgard logout`의 고정 문구와 `pgard rules list`의 제목도 번역되며, `scan`이나 메뉴에서 나오는 로그인, GitHub App 설치, 보고서 내보내기 메시지도 마찬가지입니다. 기계가 읽는 출력(`--format json`, `sarif`)은 항상 영어이며, `doctor`의 `[ok]`/`[fail]`/`[warn]` 표시, GitHub의 오류 메시지, GitHub App 재정의 경고도 영어로 남습니다.
+- **터미널:** 검사 결과 화면 전체(제목, 라벨, 상태 단어, 차트, 안내, `testDirectories`가 발견 항목을 테스트 코드로 분류했다는 설명, 지난 검사와의 비교), stderr의 진행·상태 줄, 처음 실행 시의 저장 안내가 해당 언어로 표시되며, 규칙 제목·영향·조치 줄과 `pgard rules list`의 제목도 마찬가지입니다. 한국어 글자는 두 칸을 차지하므로 표시 너비 기준으로 맞춰 열이 어긋나지 않습니다. 번역하지 않는 것: 경로, 근거, `pgard.config.json`에서 인용한 사유, 검사가 쓴 coverage 비고, 권한 확인 사유, 표준의 공식 제목. `pgard doctor`, `pgard login`, `pgard logout`의 고정 문구와 `pgard rules list`의 제목도 번역되며, 대화형 메뉴(항목, 힌트, 도움말, 돌아가기 안내. `--lang` 또는 `PGARD_LANG`을 따름)와 `scan`이나 메뉴에서 나오는 로그인, GitHub App 설치, 보고서 내보내기 메시지도 마찬가지입니다. `scan`, `report`, `sbom`의 "Git 저장소가 아님" 메시지는 번역되며, 사용법 오류(예: 알 수 없는 옵션)는 번역하지 않고 영어로 남습니다. 기계가 읽는 출력(`--format json`, `sarif`)은 항상 영어이며, `doctor`의 `[ok]`/`[fail]`/`[warn]` 표시, GitHub의 오류 메시지, GitHub App 재정의 경고도 영어로 남습니다.
 - **보고서:** `--report-lang en|ko`(기본값: 터미널 언어)가 보고서 전체의 고정 문구(제목, 라벨, 표 머리글, 요약, 안내문, 면책 문구, 새 표준·통계 구역)와 규칙 제목, 영향, 조치 문구의 언어를 정하며 `<html lang>`도 이를 따릅니다. PDF는 내장 한국어 글꼴을 쓰며, 글꼴 부분집합이 모든 규칙 문구와 예시를 포함하는지 테스트로 확인합니다. 근거, 위치, 권한 확인 사유, 검사 범위 비고, 표준 지도의 이유는 검사에서 나온 데이터이므로 그대로(영어) 둡니다.
 - **대시보드:** 규칙 제목, 영향, 조치 문구가 대시보드의 언어 토글을 따르며, 보고서 다운로드도 같은 언어를 씁니다. 서버는 두 언어의 규칙 메타데이터만 보내며(`/api/rule-texts`: 제목, 문구, 표준 링크, 예시) 검사 데이터는 추가되지 않습니다. 이 요청이 계속 실패하면 알림을 보여 주며 규칙 문구는 영어로 남습니다.
 - **JSON 출력**(`--format json`)과 저장된 결과는 바뀌지 않으며 항상 영어입니다.
@@ -914,7 +914,7 @@ Java 또는 Kotlin에 적용되는 모든 규칙은 같은 약점을 다루는 S
 
 발견 항목은 심각도(critical, high, medium, low, info) 순, 같으면 확정 → 의심 → 정보 순, 그다음 위치 순으로 정렬됩니다. 같은 규칙과 원인의 항목은 한 그룹이 됩니다. 제목에 위치 개수가 표시되고 줄에는 최대 3개의 위치가 나옵니다(`src/db.ts:10, src/db.ts:30, src/orders.ts:7 and 2 more`). 근거는 모든 항목이 같을 때 그대로 보여 주고, 다르면 `Evidence: varies by location`이라고 표시합니다. 결과에는 원인 문장이 없고(줄이 포함된 fingerprint만 있음) "같은 원인"은 규칙, 제목, 심각도, 상태, 신뢰도, 위치 종류, context가 같다는 뜻입니다.
 
-테스트·fixture·vendored 코드의 발견 항목이 5개(상수 `COLLAPSE_THRESHOLD`)를 넘으면 CLI는 심각도가 낮은 항목(medium, low, info)의 목록 대신 요약을 보여 줍니다. 개수, context별·규칙별 개수, 심각도, 전체를 보는 방법이 포함됩니다. 정확히 5개면 그대로 나열합니다. critical·high 항목과 내 코드의 발견 항목은 절대 접지 않습니다. `--all-findings`를 쓰거나 HTML 보고서(`--report html --output-dir <dir>`)를 보면 전부 볼 수 있습니다. 상단에는 테스트 코드의 critical·high 개수가 표시되고(예: `plus 8 in test or fixture code (1 critical, 2 high)`) 상태별 개수도 표시됩니다(`Findings (6): 1 confirmed, 5 suspected (needs review)`). 터미널이 아니거나 `NO_COLOR`가 설정되어 있으면 색 없는 같은 텍스트가 출력됩니다.
+테스트·fixture·vendored 코드의 심각도가 낮은 발견 항목(medium, low, info. critical·high는 세지 않음)이 5개(상수 `COLLAPSE_THRESHOLD`)를 넘으면 CLI는 그 목록 대신 요약을 보여 줍니다. 개수, context별·규칙별 개수, 심각도, 전체를 보는 방법이 포함됩니다. 정확히 5개면 그대로 나열합니다. critical·high 항목과 내 코드의 발견 항목은 이 형식에서 절대 접지 않으며, 테스트·vendored 구역의 제목은 그 구역의 발견 항목 전체 수를 셉니다. (간단한 터미널 목록은 대신 테스트·vendored 구역마다 critical·high 그룹을 최대 5개까지, 그리고 모든 `PG-SECRET-*` 그룹을 보여 주고 나머지는 `+N more`로 셉니다.) `--all-findings`를 쓰거나 HTML 보고서(`--report html --output-dir <dir>`)를 보면 전부 볼 수 있습니다. 상단에는 테스트 코드의 critical·high 개수가 표시되고(예: `plus 8 in test or fixture code (1 critical, 2 high)`) 상태별 개수도 표시됩니다(`Findings (6): 1 confirmed, 5 suspected (needs review)`). 터미널이 아니거나 `NO_COLOR`가 설정되어 있으면 색 없는 같은 텍스트가 출력됩니다.
 
 ### 억제(suppressions)
 
@@ -997,7 +997,7 @@ pgard scan --format sarif > pgard.sarif && \
 
 `pgard scan`은 이후 작업에서 검사를 비교할 수 있도록 끝난 결과를 보관합니다. 아무것도 남기지 않던 MVP와 달라진 점입니다. 지금은 CLI 검사만 저장합니다. 대시보드는 결과를 여전히 메모리에만 두고 종료하면 버리며, `project verify`는 저장하지 않습니다.
 
-- **위치.** 프로젝트가 아니라 사용자별 앱 데이터 폴더입니다. macOS는 `~/Library/Application Support/pgard`, Linux는 `$XDG_DATA_HOME/pgard`(기본 `~/.local/share/pgard`), Windows는 `%LOCALAPPDATA%\pgard`입니다.
+- **위치.** 프로젝트가 아니라 사용자별 앱 데이터 폴더입니다. macOS는 `~/Library/Application Support/pgard`, Linux는 `$XDG_DATA_HOME/pgard`(기본 `~/.local/share/pgard`), Windows는 `%LOCALAPPDATA%\pgard`입니다. macOS에서는 항상 `~/Library/Application Support/pgard`이며 `XDG_DATA_HOME`은 무시되므로 저장 위치가 바뀌지 않습니다(테스트용으로 분리하려면 `HOME`을 다른 곳으로 지정하세요).
 - **내용.** 검사 한 번에 파일 하나로, 그 실행의 권한 확인에서 얻은 숫자 GitHub 저장소 id 아래에 저장합니다(경로에 저장소 이름은 없음). 파일은 민감정보를 가린 검사 결과이며 [`docs/RESULT_SCHEMA.ko.md`](docs/RESULT_SCHEMA.ko.md)의 JSON과 같습니다. 검사 id와 시각, PGARD 버전, 요청한 범위, 전체 상태, `owner/name`, HEAD 커밋 SHA(웹 검사는 `127.0.0.1` origin), 권한 확인 결정과 다섯 가지 확인의 사유(로그인한 GitHub 계정, owner 계정 또는 조직, 사용자의 역할 이름이 나옴), 영역별 coverage, 그리고 각 발견 항목의 규칙·심각도·저장소 기준 상대 경로와 줄(또는 로컬 URL, 커밋)·가려 처리한 증거 일부·영향·조치 안내가 들어갑니다. 절대 경로, 프로젝트 루트, 토큰, 소스 파일 전체는 들어 있지 않으며, 읽어서 권한을 판단하는 데 쓰지도 않습니다. 다섯 가지 확인은 검사마다 계속 실행됩니다. 이번 실행에서 게이트가 허용했고 `blocked`나 `failed`로 끝나지 않은 검사만 저장합니다.
 - **보관 기간.** 저장소마다 최근 20회, 그리고 90일을 넘지 않은 것만 남깁니다. 저장할 때마다 정리합니다(`@pgard/result-store`의 상수 `RETENTION_MAX_SCANS_PER_REPO`, `RETENTION_MAX_AGE_DAYS`).
 - **보호.** macOS와 Linux에서 디렉터리는 `0700`, 파일은 `0600`이며 쓴 뒤에 확인합니다. 저장 폴더와 그 안의 파일은 심볼릭 링크를 따라가지 않습니다. 같은 폴더의 임시 파일에 쓴 뒤 이름을 바꾸므로 동시에 실행한 검사도 중간 상태의 파일을 보지 않습니다. Windows에서는 모드 비트가 적용되지 않습니다. 폴더는 `%LOCALAPPDATA%` 프로필 폴더의 접근 규칙을 상속하며 PGARD는 이를 바꾸거나 확인하지 않습니다.

@@ -11,6 +11,9 @@ import { EXIT_CODES, type ExitCode } from "../../exit-codes.js";
 import type { RuleLanguage } from "../../options.js";
 import { UNSUPPORTED_AREAS_EN } from "../../ui/i18n/command-text.js";
 import { cliText, type CliText } from "../../ui/i18n/cli-text.js";
+import { fitLines } from "../../ui/formatters/fit-lines.js";
+import { wrapWidth } from "../../ui/i18n/display-width.js";
+import { terminalWidth } from "../../ui/formatters/style.js";
 
 export const UNSUPPORTED_AREAS = UNSUPPORTED_AREAS_EN;
 
@@ -89,8 +92,21 @@ export function filterRulesByLanguage(
   );
 }
 
-function formatRule(rule: RuleDescriptor, title: string): string {
-  return `  ${rule.id.padEnd(14)} ${rule.defaultSeverity.padEnd(8)} ${title} [${rule.languages.join(", ")}]`;
+/** Columns before the title: indent, id, severity. */
+const RULE_PREFIX_WIDTH = 2 + 14 + 1 + 8 + 1;
+/** Below this width a row is left to the terminal (a hanging indent would leave no room). */
+const MIN_WRAP_WIDTH = 50;
+
+/**
+ * A rule row. With a width (a terminal), a long title wraps under itself instead of under the id;
+ * without one (a pipe), the row stays on one line so `rules list | grep` keeps working.
+ */
+function ruleRow(id: string, severity: string, body: string, width: number | null): string[] {
+  const prefix = `  ${id.padEnd(14)} ${severity.padEnd(8)} `;
+  if (width === null || width < MIN_WRAP_WIDTH) return [`${prefix}${body}`];
+  return wrapWidth(body, width - RULE_PREFIX_WIDTH).map((piece, index) =>
+    index === 0 ? `${prefix}${piece}` : `${" ".repeat(RULE_PREFIX_WIDTH)}${piece}`,
+  );
 }
 
 /**
@@ -128,6 +144,10 @@ export async function runRulesList(
   const { style } = context;
   const t = cliText(context.ruleLocale);
   const text = t.commands.rulesList;
+  // On a terminal long rows and notes wrap; a pipe keeps one line each (`rules list | grep`).
+  const width =
+    context.io.stdout.isTTY === true ? terminalWidth(context.io.stdout, context.io.env) : null;
+  const fit = (line: string): string[] => (width === null ? [line] : fitLines(line, width));
   const titleOf = (id: string, fallback: string): string =>
     context.ruleTexts === undefined
       ? fallback
@@ -142,24 +162,27 @@ export async function runRulesList(
     out(context, style.bold(text.headings[group.scope]));
     if (group.rules.length === 0) out(context, style.dim(text.noRules));
     for (const rule of group.rules) {
-      out(context, formatRule(rule, titleOf(rule.id, rule.title)));
+      const body = `${titleOf(rule.id, rule.title)} [${rule.languages.join(", ")}]`;
+      for (const line of ruleRow(rule.id, rule.defaultSeverity, body, width)) out(context, line);
       for (const line of certLines(rule, context.ruleLocale ?? "en", t)) {
-        out(context, style.dim(`      ${line}`));
+        for (const piece of fit(`      ${line}`)) out(context, style.dim(piece));
       }
     }
   }
   out(context, "");
   out(context, style.bold(text.httpHeading));
   for (const rule of WEB_RULE_LIST) {
-    out(
-      context,
-      `  ${rule.id.padEnd(14)} ${rule.severity.padEnd(8)} ${titleOf(rule.id, rule.title)}`,
-    );
+    for (const line of ruleRow(rule.id, rule.severity, titleOf(rule.id, rule.title), width)) {
+      out(context, line);
+    }
   }
   out(context, "");
-  out(context, style.dim(text.certNote));
+  for (const piece of fit(text.severityNote)) out(context, style.dim(piece));
+  for (const piece of fit(text.certNote)) out(context, style.dim(piece));
   out(context, "");
   out(context, style.bold(text.notCoveredHeading));
-  for (const area of text.unsupportedAreas) out(context, `  - ${area}`);
+  for (const area of text.unsupportedAreas) {
+    for (const piece of fit(`  - ${area}`)) out(context, piece);
+  }
   return EXIT_CODES.ok;
 }

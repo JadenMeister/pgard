@@ -4,6 +4,17 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Changed
+
+- The interactive menu now follows `--lang` and `PGARD_LANG` (#300): labels, hints, help and the return prompt are shown in Korean, `pgard --lang ko` is accepted, and the "not inside a Git repository" message of `scan`, `report` and `sbom` is translated. Usage errors stay English.
+- A Korean coverage note that continues with stored English text (a `pgard.config.json` pattern budget warning) now shows that English part in parentheses (#461).
+- `pgard rules list` and `pgard doctor` wrap long rows to the terminal width (a pipe keeps one line per row), and `rules list` says that the severity column is the rule's default (#301).
+- In the plain-text result, only medium, low and info findings from test, fixture or vendored code count towards the collapse threshold, and the section heading shows the full count (#213).
+- After a guided GitHub App install re-ran a `--format json` scan that asked for web checks, a stderr line says the web checks were not run and the scan must be repeated (#213).
+- A symbolic link at a report's file name is no longer reported as "already saved" and is refused instead (#342).
+- Long links in terminal output stay unshortened only when they have the exact shape of a PGARD standards link (#311).
+- README: on macOS the store is always `~/Library/Application Support/pgard` and `XDG_DATA_HOME` is ignored; the compact-list limits for test code are stated (#301, #311).
+
 ## [0.4.0] - 2026-11-18
 
 ### Added

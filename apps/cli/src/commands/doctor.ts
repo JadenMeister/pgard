@@ -10,7 +10,8 @@ import { scrubAbsolutePaths } from "@pgard/findings";
 import type { HostProbe } from "../deps.js";
 import { out, type CommandContext } from "../context.js";
 import { EXIT_CODES, type ExitCode } from "../exit-codes.js";
-import { safeText } from "../ui/formatters/style.js";
+import { fitLines } from "../ui/formatters/fit-lines.js";
+import { safeText, terminalWidth } from "../ui/formatters/style.js";
 import { cliText, type CliText } from "../ui/i18n/cli-text.js";
 import { JAVA_ADVISORIES, latestListDate } from "../java-runtime/advisories.js";
 import type { JavaProbe } from "../java-runtime/probe.js";
@@ -311,6 +312,10 @@ export async function runDoctor(context: CommandContext): Promise<ExitCode> {
       isRequired: false,
     },
   ];
+  // On a terminal a long row wraps under its text; a pipe keeps one line per check.
+  const width =
+    context.io.stdout.isTTY === true ? terminalWidth(context.io.stdout, context.io.env) : null;
+  const fitRow = (line: string): string[] => (width === null ? [line] : fitLines(line, width));
   out(context, style.bold(text.title));
   for (const check of checks) {
     const mark = check.isInfo
@@ -320,9 +325,9 @@ export async function runDoctor(context: CommandContext): Promise<ExitCode> {
         : check.isRequired
           ? style.red("[fail]")
           : style.yellow("[warn]");
-    out(context, `  ${mark} ${check.label}: ${check.detail}`);
+    for (const line of fitRow(`  ${mark} ${check.label}: ${check.detail}`)) out(context, line);
   }
-  out(context, `  ${style.dim("[info]")} ${text.codeOnlyInfo}`);
+  for (const line of fitRow(`  ${style.dim("[info]")} ${text.codeOnlyInfo}`)) out(context, line);
   const failedCount = checks.filter((check) => check.isRequired && !check.isOk).length;
   out(
     context,

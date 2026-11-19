@@ -19,6 +19,20 @@ export function coverageNoteDisplay(
 ): string | null {
   const shown = coverageNoteTranslation(entry, t.locale);
   if (shown === null) return null;
+  const params = entry.noteParams as Record<string, unknown> | undefined;
+  if (shown.translated && params?.["rest"] === 1) {
+    // The Korean catalog text, then the stored English rest, which stays marked as English.
+    const { rest: _rest, ...withoutRest } = params;
+    const head = coverageNoteTranslation({ ...entry, noteParams: withoutRest }, t.locale);
+    if (head?.translated && shown.text.startsWith(`${head.text} `)) {
+      const cappedHead = safeText(head.text, 300);
+      const tail = safeText(
+        shown.text.slice(head.text.length + 1),
+        Math.max(40, 300 - cappedHead.length),
+      );
+      return `${cappedHead} ${t.scanText(tail)}`;
+    }
+  }
   return shown.translated ? safeText(shown.text, 300) : t.scanText(safeText(shown.text, 300));
 }
 

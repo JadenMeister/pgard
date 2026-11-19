@@ -5,6 +5,7 @@ import path from "node:path";
 import { createInMemoryCredentialStore } from "@pgard/scan-core";
 import { afterEach, describe, expect, it } from "vitest";
 import { createTestContext, createTestDeps, createTestIo } from "../test-support.js";
+import { displayWidth } from "../ui/i18n/display-width.js";
 import type { JavaProbe } from "../java-runtime/probe.js";
 import { isSupportedNodeVersion, runDoctor } from "./doctor.js";
 
@@ -41,6 +42,22 @@ async function fixtureStore(fetchedAt: string, modifiedMax: string): Promise<str
   }
   return appData;
 }
+
+describe("runDoctor width (#301)", () => {
+  it("wraps long rows to the terminal width, and keeps one line per check when piped", async () => {
+    const tty = createTestIo({ isTTY: true, env: { COLUMNS: "60" } });
+    await runDoctor(createTestContext(tty, createTestDeps()));
+    for (const line of tty.stdout().split("\n")) expect(displayWidth(line)).toBeLessThanOrEqual(60);
+    const piped = createTestIo({ env: { COLUMNS: "60" } });
+    await runDoctor(createTestContext(piped, createTestDeps()));
+    expect(
+      piped
+        .stdout()
+        .split("\n")
+        .some((line) => displayWidth(line) > 60),
+    ).toBe(true);
+  });
+});
 
 describe("runDoctor", () => {
   it("shows the built-in PGARD App when no override is set, and exits 0", async () => {

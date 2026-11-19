@@ -18,6 +18,17 @@ import { COMMAND_TEXT_EN, COMMAND_TEXT_KO, type CommandText } from "./command-te
  * Words the HTML/PDF report already has (severity, coverage status, standards states, suppression
  * and baseline notices) come from `@pgard/report` so both front ends say the same thing.
  */
+export type MenuEntryId =
+  | "verify"
+  | "scanDefault"
+  | "scanHistory"
+  | "scanWeb"
+  | "scanAll"
+  | "dashboard"
+  | "rules"
+  | "doctor"
+  | "quit";
+
 export interface CliText {
   locale: RuleLocale;
   /** The report wording, reused for severity, coverage status, standards states and notices. */
@@ -234,12 +245,22 @@ export interface CliText {
     /** Info notice about suppressions without an expiry date. */
     noExpiry: (count: number) => string;
     webNotConfirmed: string;
+    /** After a guided install re-ran a scan that had asked for web checks without a confirmed port. */
+    webRerunAfterInstall: string;
     noReportBlocked: string;
     baselineNotSet: string;
     notStored: (reason: string) => string;
     notStoredShort: string;
     notComparable: string;
     firstRun: (dir: string, isWindows: boolean) => string;
+  };
+  /** The interactive menu (`pgard` without a command). */
+  menu: {
+    help: string;
+    /** `[label, hint]` per entry id (the report and code-only entries have their own texts). */
+    entries: Record<MenuEntryId, readonly [label: string, hint: string]>;
+    returnPrompt: (exitCode: number) => string;
+    needsTerminal: string;
   };
   /** `pgard scan code` without approval (#414, D1, D2, D4). */
   codeOnly: {
@@ -273,6 +294,8 @@ export interface CliText {
     unsafeFolder: (problem: "not_owned_by_you" | "group_or_world_writable", at: string) => string;
     /** Git puts the work tree of this repository elsewhere (`core.worktree`). */
     worktreeRedirected: string;
+    /** `scan`, `report` and `sbom` outside a Git repository. */
+    notGitRepository: string;
   };
   /** Chrome of the full-screen panel view (`pgard scan --panels`). Scan data is not in here. */
   panels: PanelsText;
@@ -493,7 +516,7 @@ const EN: CliText = {
   collapsedTitle: (count) =>
     `Test, fixture and vendored code (${count} lower-severity findings not listed)`,
   collapsedNote: (threshold) =>
-    `  Collapsed because there are more than ${threshold} in this code. Findings in your own code, and critical or high findings anywhere, are always listed. Review these too: a real value committed in a test is still exposed.`,
+    `  Collapsed because there are more than ${threshold} lower-severity findings in this code. Findings in your own code, and critical or high findings anywhere, are always listed. Review these too: a real value committed in a test is still exposed.`,
   byContext: "By context",
   byRule: "By rule",
   bySeverity: "By severity",
@@ -601,6 +624,8 @@ const EN: CliText = {
       `${count} suppression${count === 1 ? " has" : "s have"} no expiry date, so ${count === 1 ? "it" : "they"} will never be reviewed again unless someone remembers.`,
     webNotConfirmed:
       "The web target cannot be confirmed without an interactive terminal; web checks are recorded as not tested.",
+    webRerunAfterInstall:
+      "The re-run after the installation has no confirmed web target, so web checks are recorded as not tested. Run the scan again for web checks.",
     noReportBlocked: "No report was written because the scan was blocked.",
     baselineNotSet: "The baseline was not set: this scan cannot be stored.",
     notStored: (reason) => `The scan result was not stored: ${reason}`,
@@ -618,6 +643,25 @@ const EN: CliText = {
         "  Stop storing: pass --no-store, or set PGARD_NO_STORE=1.",
         "  Delete everything: pgard history clear --all",
       ].join("\n"),
+  },
+  menu: {
+    help: `Arrow keys move, Enter selects, Esc goes back, ? shows help, Ctrl+C asks to cancel.
+Every scan checks repository authorization again; only the GitHub sign-in is reused
+(from the OS keychain). Scan results are stored locally unless you pass --no-store
+(see pgard history clear); dashboard scans are never stored.`,
+    entries: {
+      verify: ["Verify project", "authorization checks"],
+      scanDefault: ["Scan code + history", "pgard scan"],
+      scanHistory: ["Scan Git history", "pgard scan history"],
+      scanWeb: ["Scan local web service", "pgard scan web"],
+      scanAll: ["Scan all", "code + history + web"],
+      dashboard: ["Open dashboard", "local web app"],
+      rules: ["List rules", "pgard rules list"],
+      doctor: ["Doctor", "environment diagnosis"],
+      quit: ["Quit", ""],
+    },
+    returnPrompt: (code) => `(exit status ${code}) Press any key to return to the menu.`,
+    needsTerminal: "The interactive menu needs a terminal. Run `pgard --help` for commands.",
   },
   codeOnly: {
     line: "! Code-only scan: authorization not verified (current files only; no Git history, no web checks, not saved).",
@@ -646,6 +690,8 @@ const EN: CliText = {
         : `${at} is writable by its group or by other users. Files another user can change are not scanned. Remove the write permission (for example chmod go-w).`,
     worktreeRedirected:
       "Git reports a different work-tree root than the folder that holds .git (usually the core.worktree setting in .git/config), so the files that would be read are not the repository that was checked. It is not scanned. If core.worktree is set, remove it from .git/config",
+    notGitRepository:
+      "The current directory is not inside a Git repository. PGARD always checks the Git root of the current directory.",
   },
   panels: {
     title: "PGARD panels",
@@ -890,7 +936,7 @@ const KO: CliText = {
   collapsedTitle: (count) =>
     `테스트·fixture·vendored 코드 (심각도가 낮은 발견 항목 ${count}건은 나열하지 않음)`,
   collapsedNote: (threshold) =>
-    `  이 코드의 항목이 ${threshold}건을 넘어 접었습니다. 사용자 코드의 항목과, 어디에 있든 치명적·높음 항목은 항상 나열합니다. 이 항목도 검토하세요. 테스트에 커밋된 실제 값도 노출된 것입니다.`,
+    `  이 코드의 심각도가 낮은 항목이 ${threshold}건을 넘어 접었습니다. 사용자 코드의 항목과, 어디에 있든 치명적·높음 항목은 항상 나열합니다. 이 항목도 검토하세요. 테스트에 커밋된 실제 값도 노출된 것입니다.`,
   byContext: "분류별",
   byRule: "규칙별",
   bySeverity: "심각도별",
@@ -1019,6 +1065,8 @@ const KO: CliText = {
       `만료일이 없는 억제 항목이 ${count}개 있어, 누군가 기억하지 않는 한 다시 검토되지 않습니다.`,
     webNotConfirmed:
       "대화형 터미널이 아니면 웹 대상을 확인할 수 없어 웹 검사는 미검사로 기록됩니다.",
+    webRerunAfterInstall:
+      "설치 뒤의 다시 검사에는 확인된 웹 대상이 없어 웹 검사는 미검사로 기록됩니다. 웹 검사를 하려면 검사를 다시 실행하세요.",
     noReportBlocked: "검사가 차단되어 보고서를 작성하지 않았습니다.",
     baselineNotSet: "기준선을 설정하지 못했습니다. 이 검사는 저장할 수 없습니다.",
     notStored: (reason) => `검사 결과를 저장하지 못했습니다: ${reason}`,
@@ -1036,6 +1084,25 @@ const KO: CliText = {
         "  저장 끄기: --no-store를 붙이거나 PGARD_NO_STORE=1을 설정하세요.",
         "  모두 삭제: pgard history clear --all",
       ].join("\n"),
+  },
+  menu: {
+    help: `방향키로 이동하고, Enter로 고르고, Esc로 뒤로 가고, ?로 도움말을 보고, Ctrl+C로 취소를 묻습니다.
+검사할 때마다 저장소 권한을 다시 확인합니다. 재사용하는 것은 GitHub 로그인(OS 키체인)뿐입니다.
+--no-store를 붙이지 않으면 검사 결과는 이 컴퓨터에 저장됩니다(pgard history clear 참고).
+대시보드 검사는 저장하지 않습니다.`,
+    entries: {
+      verify: ["프로젝트 확인", "권한 확인"],
+      scanDefault: ["코드와 Git 기록 검사", "pgard scan"],
+      scanHistory: ["Git 기록 검사", "pgard scan history"],
+      scanWeb: ["로컬 웹 서비스 검사", "pgard scan web"],
+      scanAll: ["전체 검사", "코드 + Git 기록 + 웹"],
+      dashboard: ["대시보드 열기", "로컬 웹 앱"],
+      rules: ["규칙 목록", "pgard rules list"],
+      doctor: ["환경 점검", "환경 진단"],
+      quit: ["종료", ""],
+    },
+    returnPrompt: (code) => `(종료 코드 ${code}) 아무 키나 누르면 메뉴로 돌아갑니다.`,
+    needsTerminal: "대화형 메뉴는 터미널이 필요합니다. 명령은 `pgard --help`로 확인하세요.",
   },
   codeOnly: {
     line: "! 코드 전용 검사: 권한 미확인(현재 파일만 검사, Git 기록·웹 검사 없음, 저장하지 않음).",
@@ -1064,6 +1131,8 @@ const KO: CliText = {
         : `${at} 폴더에 그룹 또는 다른 사용자의 쓰기 권한이 있습니다. 다른 사용자가 바꿀 수 있는 파일은 검사하지 않습니다. 쓰기 권한을 제거하세요(예: chmod go-w).`,
     worktreeRedirected:
       "Git이 알려 준 작업 트리 최상위 폴더가 .git이 있는 폴더와 다릅니다(보통 .git/config의 core.worktree 설정 때문입니다). 확인한 저장소와 읽게 될 파일이 달라지므로 검사하지 않습니다. core.worktree가 설정되어 있다면 .git/config에서 지우세요.",
+    notGitRepository:
+      "현재 폴더가 Git 저장소 안이 아닙니다. PGARD는 항상 현재 폴더의 Git 최상위 폴더를 확인합니다.",
   },
   panels: {
     title: "PGARD 패널",

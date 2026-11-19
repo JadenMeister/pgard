@@ -78,6 +78,18 @@ describe("runScanCommand", () => {
     expect(captured.stderr()).toContain("not inside a Git repository");
   });
 
+  it("says it in Korean outside a Git repository when the language is Korean", async () => {
+    const captured = createTestIo();
+    const context = createTestContext(
+      captured,
+      createTestDeps({ findGitRoot: async () => null, runScan: vi.fn() }),
+    );
+    const code = await runScanCommand({ ...context, ruleLocale: "ko" }, DEFAULT_SCAN);
+    expect(code).toBe(3);
+    expect(captured.stderr()).toContain("Git 저장소 안이 아닙니다");
+    expect(captured.stderr()).not.toContain("not inside a Git repository");
+  });
+
   it("shows per-check reasons and exits 3 when blocked, without a client-id hint", async () => {
     const captured = createTestIo();
     const code = await runScanCommand(
@@ -866,6 +878,45 @@ describe("runScanCommand reports", () => {
       expect(documents).toHaveLength(1);
       expect(JSON.parse(captured.stdout()).scanId).toBe("second-run");
       expect(captured.stderr()).toContain("Running the full authorization again");
+    });
+
+    it("says that web checks need a new run when a guided install re-ran a web scan (#213)", async () => {
+      const run = async (variant: "web" | "code", port: number | null) => {
+        const captured = createTestIo({ isTTY: true });
+        let calls = 0;
+        const runScan = vi.fn(
+          async (
+            _request: unknown,
+            options: { onAuthorization?: (o: AuthorizationOutcome) => void },
+          ) => {
+            calls += 1;
+            if (calls === 1) {
+              options.onAuthorization?.(HIDDEN_OUTCOME);
+              return testResult({ overallStatus: "blocked", authorization: BLOCKED, findings: [] });
+            }
+            return testResult({ scanId: "second-run" });
+          },
+        );
+        await runScanCommand(
+          createTestContext(
+            captured,
+            createTestDeps({
+              verifyProject: async () => ({ summary: BLOCKED, repo: "o/n", revision: "abc" }),
+              runScan: runScan as never,
+              recheckOwnerApproval: async () => ({ status: "passed", reason: "ok", remedy: null }),
+            }),
+            scriptedKeys([]),
+          ),
+          { variant, port, report: null, format: "json" },
+        );
+        return { stderr: captured.stderr(), calls };
+      };
+      const web = await run("web", 3000);
+      expect(web.calls).toBe(2);
+      expect(web.stderr).toContain("no confirmed web target");
+      const code = await run("code", null);
+      expect(code.calls).toBe(2);
+      expect(code.stderr).not.toContain("no confirmed web target");
     });
 
     it("emits a blocked ScanResult for web scopes instead of an empty stdout", async () => {

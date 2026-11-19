@@ -18,7 +18,6 @@ import { promptConfirm, UserCancelledError } from "../ui/components/prompts.js";
 import { formatAuthorization } from "../ui/formatters/result-view.js";
 import { safeText } from "../ui/formatters/style.js";
 import { cliText } from "../ui/i18n/cli-text.js";
-import { NOT_A_REPOSITORY_MESSAGE } from "./project/verify.js";
 
 /** Time the SBOM may spend reading lockfiles. */
 const SBOM_READ_BUDGET_MS = 60_000;
@@ -82,7 +81,7 @@ export async function runSbom(context: CommandContext, command: SbomCommand): Pr
   const t = text.commands.sbomCommand;
   const projectRoot = await context.deps.findGitRoot(context.io.cwd);
   if (projectRoot === null) {
-    err(context, context.errStyle.red(NOT_A_REPOSITORY_MESSAGE));
+    err(context, context.errStyle.red(text.codeOnly.notGitRepository));
     return EXIT_CODES.blocked;
   }
 

@@ -702,7 +702,9 @@ export function formatScanResult(
     );
   }
   const nonReal = [...test, ...vendored];
-  const isCollapsing = shouldCollapse(nonReal.length, allFindings);
+  // Only the findings that would be collapsed count towards the threshold: six high findings
+  // and one low one in test code must not collapse that single low finding.
+  const isCollapsing = shouldCollapse(nonReal.filter((f) => !isSevere(f)).length, allFindings);
   // Critical and high findings are listed in full even when the rest is collapsed.
   const testShown = isCollapsing ? test.filter(isSevere) : test;
   const vendoredShown = isCollapsing ? vendored.filter(isSevere) : vendored;
@@ -712,7 +714,7 @@ export function formatScanResult(
     const configCount = configTestFindingCount(result.coverage);
     sections.push(
       "",
-      style.bold(`${t.testGroupTitle} (${testShown.length})`),
+      style.bold(`${t.testGroupTitle} (${test.length})`),
       style.dim(
         `  ${t.testGroupNote}${configCount === 0 ? "" : t.configTestNote(configCount)}${severeNote}`,
       ),
@@ -722,7 +724,7 @@ export function formatScanResult(
   if (vendoredShown.length > 0) {
     sections.push(
       "",
-      style.bold(`${t.report.vendoredTitle} (${vendoredShown.length})`),
+      style.bold(`${t.report.vendoredTitle} (${vendored.length})`),
       style.dim(`  ${t.report.vendoredNote}${severeNote}`),
       formatGroups(vendoredShown, ctx),
     );
