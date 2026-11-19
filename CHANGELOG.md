@@ -4,6 +4,14 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Changed
+
+- A file name with a zero-width character (U+200B to U+200D, U+2060, U+FEFF) keeps it in the reported path as a visible `\uXXXX` escape instead of losing it, so `a<ZWSP>b.js` no longer looks like `ab.js` (#376). A backslash in a POSIX file name is no longer turned into `/` in a finding path.
+- Several suppressions that run more than a year ahead now give one notice with a count instead of one line each (#249).
+- The framework named for Java and Kotlin files (`frameworks: ...` in the coverage note) is taken from the manifests of the module the files live in, and Ktor is recognized, so a Ktor module next to a Spring module is no longer labelled Spring (#303). README explains why a test-path finding can show a high severity with low confidence.
+- A Prisma, TypeORM or other unsupported ORM now holds only SQL findings in a scan comparison; other findings can still be reported as "no longer reported" (#223). A directory that could not be read is now documented under exit code 4.
+- Fix suggestions (#410): a tab-separated Spring `.properties` line gets "context not supported" instead of "sensitive text", an import inside a block comment no longer counts for the `Random` fix, and the Express cookie name appears in the finding's evidence.
+
 ## [0.4.0] - 2026-11-18
 
 ### Added

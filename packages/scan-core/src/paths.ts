@@ -9,7 +9,12 @@ import { redactFinding, type Finding } from "@pgard/findings";
 export function toRepositoryRelativePath(projectRoot: string, filePath: string): string | null {
   const isAbsolute = path.isAbsolute(filePath) || path.win32.isAbsolute(filePath);
   const relative = isAbsolute ? path.relative(projectRoot, filePath) : filePath;
-  const slashed = relative.split(path.sep).join("/").replace(/\\/g, "/");
+  // A backslash is a path separator only on Windows or in a Windows path. In a POSIX file name it
+  // is an ordinary character: turning it into `/` would merge `a\\b.js` with the nested `a/b.js`.
+  const backslashIsSeparator = path.sep === "\\" || path.win32.isAbsolute(filePath);
+  const slashed = backslashIsSeparator
+    ? relative.split(path.sep).join("/").replace(/\\/g, "/")
+    : relative;
   if (slashed === "") {
     return null;
   }

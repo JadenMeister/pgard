@@ -298,7 +298,7 @@ const ABSOLUTE_PATH_PATTERN = new RegExp(
  * from what it is, e.g. U+202E in a branch name). Shared with `sanitizeDisplayText`.
  */
 export const UNSAFE_DISPLAY_CHARACTERS =
-  "[\\u0000-\\u001f\\u007f-\\u009f\\u061c\\u200b-\\u200f\\u2028-\\u202e\\u2066-\\u2069]";
+  "[\\u0000-\\u001f\\u007f-\\u009f\\u061c\\u200b-\\u200f\\u2028-\\u202e\\u2060\\u2066-\\u2069\\ufeff]";
 const UNSAFE_CHARS = new RegExp(UNSAFE_DISPLAY_CHARACTERS, "g");
 
 /** `\u202e` for U+202E: the escape as visible text. */
@@ -382,10 +382,14 @@ export function redactLocationPath(
   projectRoot?: string,
 ): string | null {
   if (locationPath === null) return null;
-  const masked = scrubAbsolutePaths(redactSecrets(locationPath), projectRoot).replace(
-    UNSAFE_CHARS,
-    escapeCharacter,
-  );
+  // redactSecrets drops zero-width characters so they cannot split a token. When it masks
+  // nothing, keep the original text so those characters are escaped below (`a<ZWSP>b.js` stays
+  // apart from `ab.js`); when it masks a secret, its output (zero-width characters removed) is
+  // used, so an escape can never split a secret away from its pattern.
+  const withoutZeroWidth = locationPath.replace(ZERO_WIDTH, "");
+  const redacted = redactSecrets(withoutZeroWidth);
+  const source = redacted === withoutZeroWidth ? locationPath : redacted;
+  const masked = scrubAbsolutePaths(source, projectRoot).replace(UNSAFE_CHARS, escapeCharacter);
   if (
     masked.startsWith("/") ||
     /^[A-Za-z]:[\\/]/.test(masked) ||

@@ -41,6 +41,26 @@ export interface LanguageTrackDetection {
   truncated: boolean;
 }
 
+/** The directory a manifest speaks for: its own, or the project above `gradle/` for the catalog. */
+function manifestScope(manifestPath: string): string {
+  const slash = manifestPath.lastIndexOf("/");
+  const directory = slash < 0 ? "" : manifestPath.slice(0, slash);
+  if (directory === "gradle") return "";
+  return directory.endsWith("/gradle") ? directory.slice(0, -"/gradle".length) : directory;
+}
+
+/**
+ * A Java or Kotlin framework is named for a language only when its manifest speaks for at least
+ * one file of that language (a Spring module next to a Ktor module must not label the Ktor files
+ * Spring, #303). Other languages keep the project-wide reading.
+ */
+function appliesToFiles(manifestPath: string, language: TreeSitterLanguage, walk: WalkResult) {
+  if (language !== "java" && language !== "kotlin") return true;
+  const scope = manifestScope(manifestPath);
+  if (scope === "") return true;
+  return walk.trackFiles[language].some((file) => file.relativePath.startsWith(`${scope}/`));
+}
+
 /**
  * Detects Java, Kotlin, Python and PHP files and their frameworks. Read-only: manifests are only
  * read as text. No grammar is loaded here.
@@ -59,6 +79,7 @@ export async function detectLanguageTrack(walk: WalkResult): Promise<LanguageTra
         ...new Set(
           frameworks
             .filter((entry) => FRAMEWORK_LANGUAGES[entry.framework].includes(language))
+            .filter((entry) => appliesToFiles(entry.manifestPath, language, walk))
             .map((entry) => entry.framework),
         ),
       ],

@@ -265,8 +265,10 @@ export const en = {
         `${count} suppressed finding${count === 1 ? " is" : "s are"} high or critical (${high} high, ${critical} critical). ${count === 1 ? "It is" : "They are"} still listed under "Suppressed"; check the reason in pgard.config.json.`,
       total: (count: number): string =>
         `${count} findings are suppressed in total (more than 10), however many entries do it.`,
-      far: (ruleId: string, path: string, expires: string): string =>
-        `The suppression of ${ruleId} for ${JSON.stringify(path)} runs until ${expires}, more than a year ahead. Suppressions should be reviewed regularly.`,
+      far: (ruleId: string, path: string, expires: string, count: number): string =>
+        count > 1
+          ? `${count} suppressions run more than a year ahead (the latest until ${expires}). Suppressions should be reviewed regularly.`
+          : `The suppression of ${ruleId} for ${JSON.stringify(path)} runs until ${expires}, more than a year ahead. Suppressions should be reviewed regularly.`,
       wildcard: (ruleId: string, path: string, count: number): string =>
         `The suppression of ${ruleId} uses ${JSON.stringify(path)}, which matches every file and every finding of that rule (${count} suppressed).`,
       broad: (ruleId: string, path: string, count: number): string =>

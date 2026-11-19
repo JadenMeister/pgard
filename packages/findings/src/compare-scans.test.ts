@@ -349,6 +349,19 @@ describe("compareScans", () => {
       }
     });
 
+    it("an unsupported ORM holds SQL findings only, other rules can be no longer reported (#223)", () => {
+      const cover = [
+        cov("source:javascript", "code", "completed", ["PG-SQL-001", "PG-XSS-001"]),
+        cov("source:orm:prisma", "code", "partial", []),
+      ];
+      const sql = compareScans(scan([finding()], cover), scan([], cover));
+      expect(sql.noLongerReported).toEqual([]);
+      expect(sql.notComparable).toHaveLength(1);
+      const xss = compareScans(scan([finding({ ruleId: "PG-XSS-001" })], cover), scan([], cover));
+      expect(xss.noLongerReported).toHaveLength(1);
+      expect(xss.notComparable).toEqual([]);
+    });
+
     it("a skipped-directory or symlink area that appears or changes blocks the scope", () => {
       const note = (text: string): Coverage => ({
         ...cov("source:dependency-directories", "code", "completed", []),

@@ -326,6 +326,8 @@ const NOTE_ONLY_AREAS: ReadonlySet<string> = new Set([
 const BUILD_OUTPUT_AREA = "source:build-output";
 const XML_AREA = "source:xml-skipped";
 const SPECIAL_AREA = "source:special-files";
+const ORM_AREA_PREFIX = "source:orm:";
+const SQL_RULE_PREFIX = "PG-SQL-";
 
 /** The path has a directory segment that the source walk skips by name (`dist`, `build`, ...). */
 function isUnderSkippedDirectory(findingPath: string | null | undefined): boolean {
@@ -430,6 +432,9 @@ function isSkipSignal(area: string, ctx: Context, finding: Finding): boolean {
     );
   }
   if (NOTE_ONLY_AREAS.has(area)) return a?.note !== b?.note;
+  // An ORM that is not analyzed only leaves the SQL it runs unjudged: a Prisma or TypeORM project
+  // can still compare every other rule (#223). A SQL finding is held exactly as before.
+  if (area.startsWith(ORM_AREA_PREFIX) && !finding.ruleId.startsWith(SQL_RULE_PREFIX)) return false;
   if (entries.some((entry) => entry.status === "partial")) return true;
   const ran = (entry: Coverage | undefined) => entry?.status === "completed";
   if (ran(a) !== ran(b)) return true;
