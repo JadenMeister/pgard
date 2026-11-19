@@ -585,8 +585,9 @@ export function convertJava(ast: AstResult): Unit {
         }
         const main = named(node, "body");
         if (main !== undefined) body.push(...block(main, depth));
-        const out: Stmt[] = [{ s: "block", line, body, params: [] }];
-        const arms: Array<{ params: string[]; body: Stmt[] }> = [];
+        const caught = node.children.some((child) => child.type === "catch_clause");
+        const out: Stmt[] = [{ s: "block", line, body, params: [], ...(caught ? { caught } : {}) }];
+        const arms: Array<{ params: string[]; body: Stmt[]; always?: boolean }> = [];
         for (const child of node.children) {
           if (child.type === "catch_clause") {
             const parameter = ofType(child, "catch_formal_parameter");
@@ -598,7 +599,11 @@ export function convertJava(ast: AstResult): Unit {
             });
           } else if (child.type === "finally_clause") {
             const handler = ofType(child, "block");
-            arms.push({ params: [], body: handler === undefined ? [] : block(handler, depth) });
+            arms.push({
+              params: [],
+              body: handler === undefined ? [] : block(handler, depth),
+              always: true,
+            });
           }
         }
         if (arms.length > 0) out.push({ s: "arms", line, subject: null, arms });

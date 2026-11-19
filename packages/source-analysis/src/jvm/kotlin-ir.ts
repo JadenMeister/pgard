@@ -166,7 +166,17 @@ export function convertKotlin(ast: AstResult): Unit {
         body.push(...stmt(child, depth + 1));
       }
     }
-    return { k: "lambda", line: node.line, params, body };
+    // `run outer@{ ... }`: the label child sits next to the literal in an annotated lambda.
+    const labelNode = node.type === "annotated_lambda" ? ofType(node, "label") : undefined;
+    const label =
+      labelNode === undefined ? null : /^([A-Za-z_][A-Za-z0-9_]*)@$/.exec(text(labelNode).trim());
+    return {
+      k: "lambda",
+      line: node.line,
+      params,
+      body,
+      ...(label === null ? {} : { label: label[1] as string }),
+    };
   }
 
   function call(node: AstNode, depth: number): Expr {
@@ -404,6 +414,15 @@ export function convertKotlin(ast: AstResult): Unit {
         return { ...(other(node, depth) as Extract<Expr, { k: "other" }>), spread: true };
       case "callable_reference":
         return other(node, depth);
+      case "try_expression":
+        // A `try` used as a value: a `throw` inside may be caught by its `catch`.
+        return {
+          ...(other(node, depth) as Extract<Expr, { k: "other" }>),
+          ...(node.children.some((child) => child.type === "catch_block") ? { caught: true } : {}),
+        };
+      case "anonymous_function":
+        // `fun() { return }`: a bare `return` leaves the function itself, not the enclosing one.
+        return { ...(other(node, depth) as Extract<Expr, { k: "other" }>), anonFun: true };
       case "object_literal":
         if (
           SQL_CALL_TEXT.test(text(node)) ||
@@ -601,10 +620,17 @@ export function convertKotlin(ast: AstResult): Unit {
       }
       case "try_expression": {
         const main = ofType(node, "block");
+        const caught = node.children.some((child) => child.type === "catch_block");
         const out: Stmt[] = [
-          { s: "block", line, body: main === undefined ? [] : block(main, depth), params: [] },
+          {
+            s: "block",
+            line,
+            body: main === undefined ? [] : block(main, depth),
+            params: [],
+            ...(caught ? { caught } : {}),
+          },
         ];
-        const arms: Array<{ params: string[]; body: Stmt[] }> = [];
+        const arms: Array<{ params: string[]; body: Stmt[]; always?: boolean }> = [];
         for (const child of node.children) {
           if (child.type === "catch_block") {
             const id = ofType(child, "identifier");
@@ -615,7 +641,11 @@ export function convertKotlin(ast: AstResult): Unit {
             });
           } else if (child.type === "finally_block") {
             const handler = ofType(child, "block");
-            arms.push({ params: [], body: handler === undefined ? [] : block(handler, depth) });
+            arms.push({
+              params: [],
+              body: handler === undefined ? [] : block(handler, depth),
+              always: true,
+            });
           }
         }
         if (arms.length > 0) out.push({ s: "arms", line, subject: null, arms });

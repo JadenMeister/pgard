@@ -366,6 +366,13 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
   // Bumped when a variable or builder gains a kind of value it did not hold: a loop is walked
   // again until nothing changes.
   let version = 0;
+  // Statements executed inside loops, for the whole file. Loop bodies are walked again until
+  // nothing changes, so an adversarial file (long variable chains in every method) pays for a
+  // few dozen passes in each of thousands of loops. Past the budget a loop gets one pass: a
+  // loop that still changed on it marks the unit incomplete (partial coverage), as with the
+  // pass cap, so the cut is reported and never read as "nothing there".
+  const LOOP_WORK_BUDGET = 150_000;
+  let loopWork = 0;
 
   const lookupField = (
     cls: ClassInfo | null,
@@ -1818,6 +1825,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       incomplete = true;
       return;
     }
+    if (ctx.loops > 0) loopWork += stmts.length;
     for (const stmt of stmts) {
       switch (stmt.s) {
         case "local": {
@@ -1923,7 +1931,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
           // Until nothing changes: what a variable holds can only grow, and each kind of value is
           // bounded, so this ends. A late assignment then reaches uses earlier in the body, through
           // any chain of variables (`prev = cur; cur = next`). Deeply nested loops get fewer passes.
-          const passes = ctx.loops >= 6 ? 1 : 40;
+          const passes = ctx.loops >= 6 || loopWork > LOOP_WORK_BUDGET ? 1 : 40;
           for (let pass = 0; pass < passes; pass += 1) {
             const seen = version;
             execStmts(stmt.body, loopCtx, depth + 1);
