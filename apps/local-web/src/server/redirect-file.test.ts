@@ -17,6 +17,7 @@ import {
   REDIRECT_FILE_NAME,
   redirectPage,
   RedirectFileError,
+  isOurRedirectFile,
 } from "./redirect-file.js";
 import { URL_TOKEN_TTL_MS } from "./session/url-session.js";
 

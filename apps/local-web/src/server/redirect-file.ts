@@ -1,5 +1,5 @@
 import { constants, rmSync } from "node:fs";
-import { chmod, lstat, mkdir, mkdtemp, open, rm } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, open, realpath, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { windowsPathProblem } from "@pgard/result-store";
@@ -147,6 +147,28 @@ async function isPrivateDirectory(dir: string, uid: number | undefined): Promise
 }
 
 /**
+ * A parent folder on the way to the cache folder (#430): a real directory of ours that nobody
+ * else can write to, or a link whose target is such a directory. A link into a shared
+ * folder (world-writable) could send the browser to another user's file, so it is refused.
+ */
+async function isTrustedParent(dir: string, uid: number | undefined): Promise<boolean> {
+  try {
+    const link = await lstat(dir);
+    const stats = link.isSymbolicLink() ? await stat(dir) : link;
+    const isOurs = (value: { uid: number; mode: number }): boolean =>
+      (uid === undefined || value.uid === uid) && (value.mode & 0o022) === 0;
+    if (!stats.isDirectory() || !isOurs(stats)) return false;
+    if (!link.isSymbolicLink()) return true;
+    // A link: the folder that holds its target must not let others rename or replace it
+    // (a sticky bit is enough).
+    const holder = await stat(path.dirname(await realpath(dir)));
+    return holder.isDirectory() && ((holder.mode & 0o022) === 0 || (holder.mode & 0o1000) !== 0);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Where the redirect folders go. macOS and Windows: the OS temp folder (per user on both).
  * Linux and the like: `$XDG_RUNTIME_DIR` when it is a private directory of ours (Snap browsers
  * on Ubuntu cannot read `/tmp`), else `~/.cache/pgard/open` (created 0700, checked to be ours
@@ -177,7 +199,10 @@ export async function redirectRoot(
     throw new RedirectFileError("No home folder for the redirect file.");
   const cache = path.join(homeDir, ".cache", "pgard", "open");
   await mkdir(cache, { recursive: true, mode: 0o700 }).catch(() => undefined);
-  if (!(await isPrivateDirectory(cache, uid))) {
+  const trusted =
+    (await isTrustedParent(path.join(homeDir, ".cache"), uid)) &&
+    (await isTrustedParent(path.join(homeDir, ".cache", "pgard"), uid));
+  if (!trusted || !(await isPrivateDirectory(cache, uid))) {
     throw new RedirectFileError("The redirect folder is not private.");
   }
   return cache;
@@ -202,6 +227,8 @@ export function isOurRedirectFile(
   const paths = platform === "win32" ? path.win32 : path.posix;
   if (!paths.isAbsolute(filePath) || paths.normalize(filePath) !== filePath) return false;
   if (!/^[\p{L}\p{N}\p{M} _.~:/\\()-]+$/u.test(filePath)) return false;
+  // #430: modifier letters (U+02BA, U+02EE) best-fit to a double quote in some code pages.
+  if (/\p{Lm}/u.test(filePath)) return false;
   return (
     paths.dirname(filePath) === redirectDir &&
     paths.basename(filePath) === REDIRECT_FILE_NAME &&

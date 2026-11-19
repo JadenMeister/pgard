@@ -504,7 +504,7 @@ export async function readDriverOverrides(cwd: string): Promise<string[]> {
   return [...overrides].flatMap((override) => ["-c", override]);
 }
 
-/** Default runner backed by `child_process.spawn("git", [...], { shell: false })`. */
+/** Default runner backed by `child_process.spawn(<resolved git>, [...], { shell: false })`; on Windows the program is an absolute `git.exe` from `resolveGitExecutable`, on other systems plain `git`. */
 export const runGit: GitRunner = async (invocation, options) => {
   if (
     options.indexFile !== undefined &&

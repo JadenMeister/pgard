@@ -1,7 +1,18 @@
 import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { once } from "node:events";
-import { link, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import {
+  link,
+  lstat,
+  mkdir,
+  open,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { createGzip, type Gzip } from "node:zlib";
 import type { Ecosystem } from "../types.js";
@@ -135,6 +146,24 @@ export const LOCK_FILE = ".update.lock";
 /** A lock older than this is stale even if its pid is alive (the pid may have been reused). */
 const LOCK_MAX_AGE_MS = 60 * 60 * 1000;
 const TAKEOVER_MAX_AGE_MS = 60 * 1000;
+/**
+ * An empty lock file this young may be a run that has created it and is about to write its pid
+ * (the fallback below is not atomic), so it counts as held, not stale.
+ */
+const EMPTY_LOCK_GRACE_MS = 5 * 1000;
+/** A leftover lock temporary file older than this is from a crashed run (a live one lasts ms). */
+const LOCK_TEMP_MAX_AGE_MS = 60 * 60 * 1000;
+const LOCK_TEMP_NAME = /^\.update\.lock\.\d+\.[a-z0-9]+\.tmp$/;
+/** `link()` errors that mean "this volume has no hard links" (FAT32, exFAT, some SMB mounts). */
+const NO_HARD_LINK_CODES = new Set([
+  "EPERM",
+  "ENOTSUP",
+  "EOPNOTSUPP",
+  "ENOSYS",
+  "EXDEV",
+  "EMLINK",
+  "UNKNOWN",
+]);
 
 export class UpdateLockedError extends Error {
   constructor(lockPath: string) {
@@ -157,6 +186,21 @@ function isProcessAlive(pid: number): boolean {
 /** Test hooks: run between judging a lock stale and acting on that judgement. */
 export interface LockHooks {
   afterJudgedStale?: () => Promise<void>;
+  /** Replaces `fs.link` (a volume without hard links fails it). */
+  link?: typeof link;
+}
+
+/** Creates the lock exclusively (`wx`); a failed write removes it again so it never lingers empty. */
+async function createLockDirectly(lockPath: string, content: string): Promise<void> {
+  const handle = await open(lockPath, "wx", 0o600); // EEXIST: someone else holds it
+  try {
+    await handle.writeFile(content);
+  } catch (error) {
+    await rm(lockPath, { force: true }).catch(() => undefined);
+    throw error;
+  } finally {
+    await handle.close().catch(() => undefined);
+  }
 }
 
 /**
@@ -164,6 +208,9 @@ export interface LockHooks {
  * a temporary file, then hard-linked into place), so a reader never sees a half-written lock. A
  * lock is stale when its pid is gone, when it is older than an hour, or when its content is not a
  * pid (empty or garbage). Returns a release function.
+ *
+ * On a volume without hard links the lock file is created directly with `wx` (still exclusive;
+ * only its content arrives a moment later, which the empty-lock grace period above covers).
  */
 export async function acquireUpdateLock(
   osvDir: string,
@@ -177,7 +224,13 @@ export async function acquireUpdateLock(
     const temporary = `${lockPath}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
     await writeFile(temporary, content, { flag: "wx", mode: 0o600 });
     try {
-      await link(temporary, lockPath);
+      try {
+        await (hooks.link ?? link)(temporary, lockPath);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === undefined || !NO_HARD_LINK_CODES.has(code)) throw error;
+        await createLockDirectly(lockPath, content);
+      }
       return async () => {
         // Remove the lock only if it is still ours (a stale-lock takeover may have replaced it).
         const current = await readFile(lockPath, "utf8").catch(() => null);
@@ -199,6 +252,7 @@ export async function acquireUpdateLock(
     const holder = /^\d+\s*$/.test(heldText) ? Number.parseInt(heldText, 10) : Number.NaN;
     const isLive = Number.isInteger(holder) && holder > 0 && isProcessAlive(holder);
     if (isLive && ageMs < LOCK_MAX_AGE_MS) throw new UpdateLockedError(lockPath);
+    if (heldText === "" && ageMs < EMPTY_LOCK_GRACE_MS) throw new UpdateLockedError(lockPath);
     await hooks.afterJudgedStale?.();
     // Taking a stale lock over is itself exclusive: only the run that holds the takeover marker
     // may remove it, and only if it is still the very lock judged stale (compared as raw text, so
@@ -228,7 +282,7 @@ export async function acquireUpdateLock(
  * Removes staging and aside directories left by an interrupted run. Call it only while holding
  * the update lock: otherwise it would delete a live update's staging directory.
  */
-export async function removeLeftovers(osvDir: string): Promise<void> {
+export async function removeLeftovers(osvDir: string, now: () => number = Date.now): Promise<void> {
   let names: string[];
   try {
     names = await readdir(osvDir);
@@ -238,6 +292,13 @@ export async function removeLeftovers(osvDir: string): Promise<void> {
   for (const name of names) {
     if (name.startsWith(".staging-") || name.startsWith(".old-")) {
       await rm(path.join(osvDir, name), { recursive: true, force: true }).catch(() => undefined);
+    } else if (LOCK_TEMP_NAME.test(name)) {
+      // Only an old one: a younger one may be another run's lock about to be linked into place.
+      const file = path.join(osvDir, name);
+      const info = await lstat(file).catch(() => null);
+      if (info?.isFile() === true && now() - info.mtimeMs >= LOCK_TEMP_MAX_AGE_MS) {
+        await rm(file, { force: true }).catch(() => undefined);
+      }
     }
   }
 }

@@ -84,6 +84,84 @@ describe("resolveGitExecutable", () => {
     ).toBeNull();
   });
 
+  describe("hostile spellings of a PATH entry (#211)", () => {
+    const base = { platform: "win32", processCwd: "C:\\elsewhere" } as const;
+    const gitIn = (dir: string) => (file: string) =>
+      file === `${dir}\\git.exe` || file === "C:\\Git\\cmd\\git.exe";
+    const noReal = (value: string): string => {
+      throw new Error(`no such path: ${value}`);
+    };
+
+    it("treats trailing dots and spaces in a segment as the same folder", () => {
+      for (const entry of [
+        "C:\\work\\repo.\\bin",
+        "C:\\work\\repo \\bin",
+        "C:\\work\\repo...\\bin",
+      ]) {
+        expect(
+          resolveGitExecutable({
+            ...base,
+            env: { Path: `${entry};C:\\Git\\cmd` },
+            isFile: (file) => file.endsWith("git.exe"),
+            cwd: "C:\\work\\repo",
+            realPath: noReal,
+            hasGitEntry: () => false,
+          }),
+        ).toBe("C:\\Git\\cmd\\git.exe");
+      }
+    });
+
+    it("compares real paths: a junction, a link or an 8.3 name into the repository", () => {
+      const real = (value: string): string =>
+        ({
+          "C:\\tools\\shim": "C:\\work\\repo\\bin",
+          "C:\\WORK\\REPO": "C:\\work\\repo",
+          "C:\\PROGRA~1\\evil": "C:\\work\\repo\\evil",
+        })[value] ?? value;
+      for (const entry of ["C:\\tools\\shim", "C:\\PROGRA~1\\evil"]) {
+        expect(
+          resolveGitExecutable({
+            ...base,
+            env: { Path: `${entry};C:\\Git\\cmd` },
+            isFile: (file) => file.endsWith("git.exe"),
+            cwd: "C:\\WORK\\REPO",
+            realPath: real,
+            hasGitEntry: () => false,
+          }),
+        ).toBe("C:\\Git\\cmd\\git.exe");
+      }
+    });
+
+    it("a PATH entry that does not exist is judged by how it is written", () => {
+      expect(
+        resolveGitExecutable({
+          ...base,
+          env: { Path: "C:\\work\\repo\\bin;C:\\ok" },
+          isFile: gitIn("C:\\ok"),
+          cwd: "C:\\work\\repo",
+          realPath: noReal,
+          hasGitEntry: () => false,
+        }),
+      ).toBe("C:\\ok\\git.exe");
+    });
+
+    it("started from a subfolder, the repository root above it is excluded too", () => {
+      const options = {
+        ...base,
+        env: { Path: "C:\\work\\repo\\tools;C:\\Git\\cmd" },
+        isFile: (file: string) => file.endsWith("git.exe"),
+        cwd: "C:\\work\\repo\\src\\deep",
+        realPath: noReal,
+      };
+      expect(resolveGitExecutable({ ...options, hasGitEntry: () => false })).toBe(
+        "C:\\work\\repo\\tools\\git.exe",
+      );
+      expect(
+        resolveGitExecutable({ ...options, hasGitEntry: (dir) => dir === "C:\\work\\repo" }),
+      ).toBe("C:\\Git\\cmd\\git.exe");
+    });
+  });
+
   it("returns null when PATH has no usable git", () => {
     expect(resolveGitExecutable({ platform: "win32", env: {}, isFile })).toBeNull();
     expect(resolveGitExecutable({ platform: "win32", env: { Path: "git;." }, isFile })).toBeNull();
@@ -154,6 +232,7 @@ describe.skipIf(process.platform !== "win32")(
       const repo = plant();
       const env = { ...process.env };
       delete env.NoDefaultCurrentDirectoryInExePath;
+      // A planted node.exe prints its own version for `--version`.
       const result = spawnSync("git", ["--version"], {
         cwd: repo.root,
         env,
@@ -162,6 +241,8 @@ describe.skipIf(process.platform !== "win32")(
         killSignal: "SIGKILL",
       });
       expect(result.stdout.startsWith("git version")).toBe(false);
+      // The planted copy really ran (node prints `v22...`), so the control is not vacuous (#211).
+      expect(result.stdout).toMatch(/^v\d+\./);
     });
 
     it("never runs for findGitRoot or runGit", async () => {

@@ -1,5 +1,4 @@
-import { constants } from "node:fs";
-import { open, readdir } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { classifyDependencyVendorDirectory } from "@pgard/findings";
 import {
@@ -27,6 +26,7 @@ import {
   MAX_TOTAL_DEPENDENCIES,
   MAX_VISITED_ENTRIES,
 } from "./limits.js";
+import { openRegularFileNoFollow } from "./safe-open.js";
 import type {
   Dependency,
   DependencyCollection,
@@ -234,10 +234,9 @@ async function readCapped(
 ): Promise<ReadOutcome> {
   let handle;
   try {
-    handle = await open(
-      absolutePath,
-      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0),
-    );
+    // #395: `lstat`, then a no-follow open that (without O_NOFOLLOW) must be the inspected file.
+    handle = await openRegularFileNoFollow(absolutePath);
+    if (handle === null) return { error: "unreadable" };
     const stats = await handle.stat({ bigint: true });
     if (!stats.isFile()) return { error: "unreadable" };
     const key = stats.ino === 0n ? null : `${stats.dev}:${stats.ino}:${kind}`;

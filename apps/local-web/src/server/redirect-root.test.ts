@@ -104,4 +104,37 @@ describe.skipIf(process.platform === "win32")("redirectRoot on Linux", () => {
       redirectRoot({ platform: "linux", env: {}, homeDir: "", uid }),
     ).rejects.toBeInstanceOf(RedirectFileError);
   });
+
+  describe("parents (#430)", () => {
+    const rootFor = (home: string) =>
+      redirectRoot({ platform: "linux", env: {}, homeDir: home, uid });
+
+    it("refuses a ~/.cache or ~/.cache/pgard link into a world-writable folder", async () => {
+      for (const linked of [".cache", path.join(".cache", "pgard")]) {
+        const home = scratch();
+        const shared = path.join(home, "shared");
+        mkdirSync(shared, { mode: 0o777 });
+        chmodSync(shared, 0o777);
+        mkdirSync(path.join(shared, "pgard", "open"), { recursive: true, mode: 0o700 });
+        if (linked === ".cache") symlinkSync(shared, path.join(home, ".cache"));
+        else {
+          mkdirSync(path.join(home, ".cache"));
+          symlinkSync(path.join(shared, "pgard"), path.join(home, ".cache", "pgard"));
+        }
+        await expect(rootFor(home)).rejects.toBeInstanceOf(RedirectFileError);
+      }
+    });
+
+    it("refuses a group-writable ~/.cache, accepts a link to a private folder of ours", async () => {
+      const home = scratch();
+      mkdirSync(path.join(home, ".cache"));
+      chmodSync(path.join(home, ".cache"), 0o775);
+      await expect(rootFor(home)).rejects.toBeInstanceOf(RedirectFileError);
+      const real = path.join(scratch(), "real-cache");
+      mkdirSync(real, { mode: 0o755 });
+      const home2 = scratch();
+      symlinkSync(real, path.join(home2, ".cache"));
+      expect(await rootFor(home2)).toBe(path.join(home2, ".cache", "pgard", "open"));
+    });
+  });
 });

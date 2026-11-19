@@ -4,6 +4,10 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Security
+
+- Hardening follow-ups (#430, #395, #211, #214): `pgard web` on Linux refuses a `~/.cache` or `~/.cache/pgard` that is writable by others or links into a shared folder, and its opener check refuses modifier letters in the redirect path; the lockfile reader checks, on systems without `O_NOFOLLOW`, that the opened file is the one inspected; on Windows the git lookup also compares real paths, ignores trailing dots and spaces and excludes the repository root; `pgard advisories update` works on volumes without hard links (a just-created empty lock now counts as held for 5 seconds) and removes old lock temp files.
+
 ## [0.4.0] - 2026-11-18
 
 ### Added

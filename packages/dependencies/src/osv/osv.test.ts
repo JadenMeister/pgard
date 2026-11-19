@@ -729,8 +729,11 @@ describe("lock edge cases", () => {
   const hours = (count: number): number => count * 60 * 60 * 1000;
   const deadPid = (): number => spawnSync(process.execPath, ["-e", ""]).pid;
 
-  it("an empty lock file, fresh or 2 hours old, does not block updates", async () => {
-    for (const ageMs of [0, hours(2)]) {
+  it("a just-created empty lock is held for a moment; an older empty one does not block", async () => {
+    const fresh = await prepare("", 0);
+    await expect(acquireUpdateLock(fresh.osv)).rejects.toThrow(/already running/);
+    expect(await readFile(fresh.lock, "utf8")).toBe("");
+    for (const ageMs of [60 * 1000, hours(2)]) {
       const { osv, lock } = await prepare("", ageMs);
       const release = await acquireUpdateLock(osv);
       expect(await readFile(lock, "utf8")).toBe(`${process.pid}\n`);
@@ -787,6 +790,86 @@ describe("lock edge cases", () => {
     const release = await acquireUpdateLock(osv);
     await release();
     expect(await readdir(osv)).toEqual([]);
+  });
+});
+
+describe("update lock without hard links and leftover temp files (#214)", () => {
+  const noLink = (code: string) => async (): Promise<void> => {
+    throw Object.assign(new Error("link failed"), { code });
+  };
+  const deadPid = (): number => spawnSync(process.execPath, ["-e", ""]).pid;
+
+  it("falls back to a direct exclusive create when the volume has no hard links", async () => {
+    const osv = osvDataDir(dir);
+    for (const code of ["EPERM", "ENOTSUP", "EXDEV"]) {
+      const release = await acquireUpdateLock(osv, Date.now, { link: noLink(code) });
+      expect(await readFile(path.join(osv, ".update.lock"), "utf8")).toBe(`${process.pid}\n`);
+      // Exclusive: a second run is refused, also without links.
+      await expect(acquireUpdateLock(osv, Date.now, { link: noLink(code) })).rejects.toThrow(
+        /already running/,
+      );
+      await release();
+      expect(await readdir(osv)).toEqual([]); // the temporary file is gone as well
+    }
+  });
+
+  it("any other link error still fails loudly, leaving no lock or temporary file", async () => {
+    const osv = osvDataDir(dir);
+    await expect(acquireUpdateLock(osv, Date.now, { link: noLink("EIO") })).rejects.toThrow(
+      "link failed",
+    );
+    expect(await readdir(osv)).toEqual([]);
+  });
+
+  it("a stale lock from a dead process is still replaced without hard links", async () => {
+    const { mkdir, writeFile: write } = await import("node:fs/promises");
+    const osv = osvDataDir(dir);
+    await mkdir(osv, { recursive: true });
+    await write(path.join(osv, ".update.lock"), `${deadPid()}\n`);
+    const release = await acquireUpdateLock(osv, Date.now, { link: noLink("EPERM") });
+    expect(await readFile(path.join(osv, ".update.lock"), "utf8")).toBe(`${process.pid}\n`);
+    await release();
+  });
+
+  it("never takes a lock held by a live process, with or without hard links", async () => {
+    const { mkdir, writeFile: write } = await import("node:fs/promises");
+    const osv = osvDataDir(dir);
+    await mkdir(osv, { recursive: true });
+    await write(path.join(osv, ".update.lock"), `${process.pid}\n`);
+    await expect(acquireUpdateLock(osv, Date.now, { link: noLink("EPERM") })).rejects.toThrow(
+      /already running/,
+    );
+    expect(await readFile(path.join(osv, ".update.lock"), "utf8")).toBe(`${process.pid}\n`);
+  });
+
+  it("removeLeftovers deletes only old lock temp files with the exact name", async () => {
+    const { mkdir, utimes, writeFile: write } = await import("node:fs/promises");
+    const osv = osvDataDir(dir);
+    await mkdir(osv, { recursive: true });
+    const oldTemp = ".update.lock.123.abc123.tmp";
+    const youngTemp = ".update.lock.124.def456.tmp";
+    const others = [".update.lock", ".update.lock.takeover", ".update.lock.x.tmp", "keep.tmp"];
+    for (const name of [oldTemp, youngTemp, ...others]) await write(path.join(osv, name), "1\n");
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    await utimes(path.join(osv, oldTemp), old, old);
+    await removeLeftovers(osv);
+    expect((await readdir(osv)).sort()).toEqual([youngTemp, ...others].sort());
+  });
+
+  it("removeLeftovers never follows a link named like a temp file", async () => {
+    const { mkdir, symlink, utimes, lstat } = await import("node:fs/promises");
+    if (process.platform === "win32") return;
+    const osv = osvDataDir(dir);
+    await mkdir(osv, { recursive: true });
+    const target = path.join(dir, "precious");
+    await writeFile(target, "data");
+    const name = path.join(osv, ".update.lock.1.aa.tmp");
+    await symlink(target, name);
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    await utimes(name, old, old).catch(() => undefined);
+    await removeLeftovers(osv, () => Date.now() + 3 * 60 * 60 * 1000);
+    expect(await readFile(target, "utf8")).toBe("data");
+    expect((await lstat(name).catch(() => null))?.isSymbolicLink()).toBe(true);
   });
 });
 
