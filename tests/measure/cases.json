@@ -1167,6 +1167,25 @@
     "inScope": true
   },
   {
+    "cwe": ["CWE-79", "CWE-80"],
+    "expect": [
+      {
+        "file": "index.js",
+        "startLine": 14,
+        "endLine": 27
+      }
+    ],
+    "fixCommit": "2bdbaaff9cb8a4639135eb24cfcd383d3fefb534",
+    "id": "GHSA-gfhx-hw2g-v5hg",
+    "language": "js",
+    "note": "Serialized output was not fully escaped for script contexts.",
+    "repo": "yahoo/serialize-javascript",
+    "repoSizeKb": 337,
+    "vulnCommit": "8c8caa7066a52106fa719c6abb5dc69858c9f799",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
     "cwe": ["CWE-287"],
     "expect": [
       {

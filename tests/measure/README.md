@@ -4,7 +4,7 @@ Measures how many known, published vulnerabilities in real open-source projects 
 
 ## Data
 
-`cases.json`: 112 verified cases (GHSA id, public GitHub repo, fix commit, its vulnerable parent commit, CWEs, and the old-file lines of the vulnerable code at the vulnerable commit). Extra fields: `doubtful` (set from the committed `doubtful.json`, one reason per id: the expected lines or CWE are less certain) and `inScope` (a CWE that PGARD has a rule for, see `cwe-families.mjs`). The dataset test checks both against the files and checks shas, repo names and line ranges.
+`cases.json`: 113 verified cases (GHSA id, public GitHub repo, fix commit, its vulnerable parent commit, CWEs, and the old-file lines of the vulnerable code at the vulnerable commit). Extra fields: `doubtful` (set from the committed `doubtful.json`, one reason per id: the expected lines or CWE are less certain) and `inScope` (a CWE that PGARD has a rule for, see `cwe-families.mjs`). The dataset test checks both against the files and checks shas, repo names and line ranges.
 
 ## Ethics
 
