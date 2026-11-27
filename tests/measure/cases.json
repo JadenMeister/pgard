@@ -1,0 +1,2254 @@
+[
+  {
+    "cwe": ["CWE-611"],
+    "expect": [
+      {
+        "file": "detekt-core/src/main/kotlin/io/gitlab/arturbosch/detekt/core/baseline/BaselineFormat.kt",
+        "startLine": 19,
+        "endLine": 21
+      }
+    ],
+    "fixCommit": "c965a8d2a6bbdb9bcfc6acfa7bbffd3da81f5395",
+    "id": "GHSA-2cfc-865j-gm4w",
+    "language": "kotlin",
+    "note": "Baseline XML was parsed with a default SAX parser factory without secure-processing configuration. [doubtful: CWE-611 outside the brief list (nearest 16/1188)]",
+    "repo": "detekt/detekt",
+    "repoSizeKb": 248915,
+    "vulnCommit": "08eac68caa24ced140cc017d4de3b258a470232b",
+    "doubtful": true,
+    "inScope": false
+  },
+  {
+    "cwe": ["CWE-78"],
+    "expect": [
+      {
+        "file": "backend/sftp/sftp.go",
+        "startLine": 2450,
+        "endLine": 2457
+      }
+    ],
+    "fixCommit": "e122fba1a57641b63a580aa26c026903a84e2e88",
+    "id": "GHSA-2m8m-jhrm-w6j2",
+    "language": "go",
+    "note": "PowerShell path quoting only escaped the ASCII apostrophe, not Unicode smart quotes, permitting command injection via file names.",
+    "repo": "rclone/rclone",
+    "repoSizeKb": 260069,
+    "vulnCommit": "7543a7a87884aca957590b20b0714078d51af87b",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-918"],
+    "expect": [
+      {
+        "file": "indico/util/network.py",
+        "startLine": 22,
+        "endLine": 27
+      }
+    ],
+    "fixCommit": "44540e70ab4e20a12f14ddba5218a33749a86736",
+    "id": "GHSA-2v95-h47v-g4x9",
+    "language": "python",
+    "note": "Private-URL check could be bypassed with a backslash in the URL, enabling SSRF.",
+    "repo": "indico/indico",
+    "repoSizeKb": 281917,
+    "vulnCommit": "d7a07ccc7001915f049479f8ab51fd86baae8f82",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-798"],
+    "expect": [
+      {
+        "file": "application/libraries/Instance.php",
+        "startLine": 102,
+        "endLine": 106
+      }
+    ],
+    "fixCommit": "2731d2f17c5140c562426b857e9f5d63da5c4593",
+    "id": "GHSA-347f-rxg8-qgrv",
+    "language": "php",
+    "note": "Seed data creates an administrator account with a fixed default password.",
+    "repo": "alextselegidis/easyappointments",
+    "repoSizeKb": 51397,
+    "vulnCommit": "963413eb8849568f5b75589740878cac3d0d03cf",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-295"],
+    "expect": [
+      {
+        "file": "okhttp/src/main/kotlin/okhttp3/internal/tls/OkHostnameVerifier.kt",
+        "startLine": 38,
+        "endLine": 42
+      },
+      {
+        "file": "okhttp/src/main/kotlin/okhttp3/internal/tls/OkHostnameVerifier.kt",
+        "startLine": 64,
+        "endLine": 64
+      },
+      {
+        "file": "okhttp/src/main/kotlin/okhttp3/internal/tls/OkHostnameVerifier.kt",
+        "startLine": 111,
+        "endLine": 111
+      }
+    ],
+    "fixCommit": "f574ea2f5259d9040f264ddeb582fb1ce563f10c",
+    "id": "GHSA-3cqm-mf7h-prrj",
+    "language": "kotlin",
+    "note": "Hostname verification lower-cased non-ASCII host names, allowing look-alike characters to match certificate names. [doubtful: CWE-295 is outside the brief CWE list (nearest 16/1188)]",
+    "repo": "square/okhttp",
+    "repoSizeKb": 68576,
+    "vulnCommit": "1fd7c0afdc2cee9ba982b07d49662af7f60e1518",
+    "doubtful": true,
+    "inScope": false
+  },
+  {
+    "cwe": ["CWE-798"],
+    "expect": [
+      {
+        "file": "core/src/main/java/com/usthe/sureness/util/JsonWebTokenUtil.java",
+        "startLine": 21,
+        "endLine": 23
+      },
+      {
+        "file": "core/src/main/java/com/usthe/sureness/util/JsonWebTokenUtil.java",
+        "startLine": 40,
+        "endLine": 43
+      }
+    ],
+    "fixCommit": "12987a72cbf1eabbca1e308ed1fe9445958aeca7",
+    "id": "GHSA-3j2f-58rq-g6p7",
+    "language": "java",
+    "note": "JWT signing falls back to a hard-coded default secret key; fix refuses to issue tokens until a custom key is set.",
+    "repo": "dromara/sureness",
+    "repoSizeKb": 8695,
+    "vulnCommit": "4e54fb20a927accca23f70aa5b547c00bc7843bf",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-22"],
+    "expect": [
+      {
+        "file": "spring-cloud-config-server/src/main/java/org/springframework/cloud/config/server/resource/ResourceController.java",
+        "startLine": 143,
+        "endLine": 147
+      },
+      {
+        "file": "spring-cloud-config-server/src/main/java/org/springframework/cloud/config/server/resource/ResourceController.java",
+        "startLine": 217,
+        "endLine": 221
+      }
+    ],
+    "fixCommit": "1870f07befd5f62edcfdaea5ad82441d0fd49912",
+    "id": "GHSA-3qwq-q9vm-5j42",
+    "language": "java",
+    "note": "Profile path segment reaches the resource lookup without an encoded-traversal check; fix adds the check.",
+    "repo": "spring-cloud/spring-cloud-config",
+    "repoSizeKb": 41854,
+    "vulnCommit": "6f17bc3d45df3cea55bfba4676d53afd26d53836",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-79"],
+    "expect": [
+      {
+        "file": "packages/MdEditor/layouts/Content/composition/useMarkdownIt.ts",
+        "startLine": 203,
+        "endLine": 207
+      },
+      {
+        "file": "packages/MdEditor/layouts/Content/markdownIt/code/index.ts",
+        "startLine": 72,
+        "endLine": 74
+      }
+    ],
+    "fixCommit": "2c07360420e74087f5bc63032ab155d93e0a0b10",
+    "id": "GHSA-3rm2-h79c-8qw6",
+    "language": "frontend",
+    "note": "Fenced-code language and copy tooltip text were placed into HTML attributes without escaping in the markdown preview renderer.",
+    "repo": "imzbf/md-editor-v3",
+    "repoSizeKb": 44672,
+    "vulnCommit": "bea48ec0ba51c19deda9486eb06050b5b8f50b51",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-330"],
+    "expect": [
+      {
+        "file": "msg.go",
+        "startLine": 107,
+        "endLine": 119
+      }
+    ],
+    "fixCommit": "8ebf2e419df7857ac8919baa05248789a8ffbf33",
+    "id": "GHSA-44r7-7p62-q3fr",
+    "language": "go",
+    "note": "DNS message IDs were generated by a seeded non-cryptographic math/rand generator.",
+    "repo": "miekg/dns",
+    "repoSizeKb": 16487,
+    "vulnCommit": "6d0449f98180253901e9551a10ce679f35ff05be",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-338", "CWE-330"],
+    "expect": [
+      {
+        "file": "core/src/main/java/org/apache/syncope/core/connid/PasswordGenerator.java",
+        "startLine": 227,
+        "endLine": 230
+      },
+      {
+        "file": "core/src/main/java/org/apache/syncope/core/connid/PasswordGenerator.java",
+        "startLine": 303,
+        "endLine": 304
+      }
+    ],
+    "fixCommit": "8e0045925a387ee211832c7e0709dd418cda1ad3",
+    "id": "GHSA-4c72-mrhf-23cg",
+    "language": "java",
+    "note": "Generated passwords use Math.random and RandomStringUtils; fix switches to a secure random helper.",
+    "repo": "apache/syncope",
+    "repoSizeKb": 92560,
+    "vulnCommit": "374014a526c66bf7c0a731d667ca97826befbc02",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-79"],
+    "expect": [
+      {
+        "file": "backend/app/rest/api/rest.go",
+        "startLine": 622,
+        "endLine": 640
+      }
+    ],
+    "fixCommit": "78d6de6bce1e961f023969da3ec8a00dd80c9ae8",
+    "id": "GHSA-4c8j-mgm4-qqvp",
+    "language": "go",
+    "note": "Security headers middleware lacked nosniff and referrer policy headers, enabling content-type reinterpretation of uploaded content.",
+    "repo": "umputun/remark42",
+    "repoSizeKb": 38590,
+    "vulnCommit": "638fa63e8104cb7e3b5f7b6338fff2d0b684aa18",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-89"],
+    "expect": [
+      {
+        "file": "tenant/src/main/java/org/folio/spring/tenant/hibernate/HibernateSchemaService.java",
+        "startLine": 180,
+        "endLine": 182
+      }
+    ],
+    "fixCommit": "d374a5f77e6b58e36f0e0e4419be18b95edcd7ff",
+    "id": "GHSA-4h5h-p23f-hjqf",
+    "language": "java",
+    "note": "Schema-existence query is built with String.format from the tenant name; fix validates or parameterizes it.",
+    "repo": "folio-org/spring-module-core",
+    "repoSizeKb": 615,
+    "vulnCommit": "e93b5ddd3022b81abf8ae81da8d3a740186f456e",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-89"],
+    "expect": [
+      {
+        "file": "lib/dialects/mysql/query/mysql-querycompiler.js",
+        "startLine": 131,
+        "endLine": 137
+      }
+    ],
+    "fixCommit": "e145322da92749be7749f9ade5b5f5a66d6586a4",
+    "id": "GHSA-4jv9-3563-23j3",
+    "language": "js",
+    "note": "MySQL query compiler built part of a query without proper escaping.",
+    "repo": "knex/knex",
+    "repoSizeKb": 19448,
+    "vulnCommit": "962bb0a635ed40a240021379521814b5bd36d438",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-22", "CWE-59"],
+    "expect": [
+      {
+        "file": "lib/network.js",
+        "startLine": 1383,
+        "endLine": 1388
+      }
+    ],
+    "fixCommit": "8d294b3139fec654a912969ac898037578a218cd",
+    "id": "GHSA-4vjg-vx72-qq4g",
+    "language": "js",
+    "note": "Interface name was used in a file path without validation.",
+    "repo": "sebhildebrandt/systeminformation",
+    "repoSizeKb": 7258,
+    "vulnCommit": "88f2fa6def2fe99680a18c764489f96d949dfd80",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-78"],
+    "expect": [
+      {
+        "file": "glances/actions.py",
+        "startLine": 126,
+        "endLine": 129
+      }
+    ],
+    "fixCommit": "5c07c0d96423e9d5b9de71dd92e3717c66f504bd",
+    "id": "GHSA-59fj-m2j6-hcxh",
+    "language": "python",
+    "note": "Configured action command was run with shell operators enabled even when config exec was disabled.",
+    "repo": "nicolargo/glances",
+    "repoSizeKb": 67654,
+    "vulnCommit": "65b27142f5237962985e933698111197233e07d0",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-918"],
+    "expect": [
+      {
+        "file": "rt/rs/description/src/main/java/org/apache/cxf/jaxrs/model/wadl/WadlGenerator.java",
+        "startLine": 243,
+        "endLine": 250
+      }
+    ],
+    "fixCommit": "378afe1acb7503315bc63555c8743db0f55d8312",
+    "id": "GHSA-5m3j-pxh7-455p",
+    "language": "java",
+    "note": "WADL filter serves a user-supplied stylesheet path based only on its extension; fix restricts it to the configured reference.",
+    "repo": "apache/cxf",
+    "repoSizeKb": 158400,
+    "vulnCommit": "7ae4b00d0b2750fc3fca43fabcc1d0f5a11f0541",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-89"],
+    "expect": [
+      {
+        "file": "persistence/artist_repository.go",
+        "startLine": 131,
+        "endLine": 133
+      }
+    ],
+    "fixCommit": "b19d5f0d3e079639904cac95735228f445c798b6",
+    "id": "GHSA-5wgp-vjxm-3x2r",
+    "language": "go",
+    "note": "Role filter value interpolated into a JSON path expression of a SQL query without allow-list validation.",
+    "repo": "navidrome/navidrome",
+    "repoSizeKb": 74537,
+    "vulnCommit": "175964b17a8bdd092e59b91d99cd81b61506b837",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-22"],
+    "expect": [
+      {
+        "file": "src/requestHandler.ts",
+        "startLine": 408,
+        "endLine": 411
+      }
+    ],
+    "fixCommit": "fdc97f9e652e0d38cb43911d31f827a12b248fc8",
+    "id": "GHSA-62gx-5q78-wrvx",
+    "language": "ts",
+    "note": "Vault path from the request is decoded and used without a traversal check.",
+    "repo": "coddingtonbear/obsidian-local-rest-api",
+    "repoSizeKb": 4327,
+    "vulnCommit": "7c5f60152414dac4f40d94131d2217aabe19a6d0",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-78"],
+    "expect": [
+      {
+        "file": "packages/launch-editor/construct-windows-launch-command.js",
+        "startLine": 19,
+        "endLine": 27
+      }
+    ],
+    "fixCommit": "3c2f9bf2ff8fe63d056a8f9cc52d825b66ca79fc",
+    "id": "GHSA-698v-4r3x-3vcv",
+    "language": "js",
+    "note": "Windows launch command was built from file input without full escaping.",
+    "repo": "vitejs/launch-editor",
+    "repoSizeKb": 406,
+    "vulnCommit": "ecdfce1f9ec56a9c08f225f27d8047f3cf9690b1",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-330"],
+    "expect": [
+      {
+        "file": "csprng.go",
+        "startLine": 101,
+        "endLine": 106
+      }
+    ],
+    "fixCommit": "f261819e99ea169843bd5aa3e643d046260ff511",
+    "id": "GHSA-69jw-4jj8-fcxm",
+    "language": "go",
+    "note": "Seed unwrapping used an AES-GCM open call with an output buffer that retained attacker-influenced bytes, weakening the derived randomness.",
+    "repo": "cloudflare/gokey",
+    "repoSizeKb": 67,
+    "vulnCommit": "c218168412a286494ab28fb62dd786c8feef4d20",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-22"],
+    "expect": [
+      {
+        "file": "src/Filesystem/F.php",
+        "startLine": 654,
+        "endLine": 658
+      }
+    ],
+    "fixCommit": "2b6fab950bc89d505ea89576bf71c8de614cc3b2",
+    "id": "GHSA-6j4c-mgqr-qv76",
+    "language": "php",
+    "note": "Parent directory containment check uses a bare string prefix comparison.",
+    "repo": "getkirby/kirby",
+    "repoSizeKb": 74814,
+    "vulnCommit": "e90257fd7504053e13e93a1e9a5a9a5137aed966",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-918"],
+    "expect": [
+      {
+        "file": "core/data/src/main/kotlin/com/stash/core/data/youtube/YouTubeHistoryScrobbler.kt",
+        "startLine": 67,
+        "endLine": 79
+      }
+    ],
+    "fixCommit": "96fcc2e166a8f5f427eaf31318b8f6dd107873b0",
+    "id": "GHSA-6qg7-53qh-33q7",
+    "language": "kotlin",
+    "note": "A server-supplied URL was requested with the user's cookies and auth header without checking its host. [doubtful: range estimated, advisory lists CWE-522/918]",
+    "repo": "rawnaldclark/Stash",
+    "repoSizeKb": 57796,
+    "vulnCommit": "25267cb81a732755faf31c145c4243592a1b5beb",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-79"],
+    "expect": [
+      {
+        "file": "src/lib/core.js",
+        "startLine": 4767,
+        "endLine": 4767
+      },
+      {
+        "file": "src/lib/core.js",
+        "startLine": 5904,
+        "endLine": 5906
+      }
+    ],
+    "fixCommit": "a94ace269c7102bfb6de58a27a6547bc4eb09045",
+    "id": "GHSA-6rf4-v2fh-m6p4",
+    "language": "frontend",
+    "note": "Code-view content was loaded into the editor without running the disallowed-tag filter, and the filter missed some tag names.",
+    "repo": "JiHong88/suneditor",
+    "repoSizeKb": 82111,
+    "vulnCommit": "d943fe581be00ba1218a367d9b302c015a7c3771",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-330"],
+    "expect": [
+      {
+        "file": "index.js",
+        "startLine": 9,
+        "endLine": 13
+      },
+      {
+        "file": "index.js",
+        "startLine": 39,
+        "endLine": 39
+      }
+    ],
+    "fixCommit": "b27de1ce439ae7f533cec26677e9698671275b70",
+    "id": "GHSA-6x93-h9g3-9phr",
+    "language": "js",
+    "note": "OTP digits were generated with a non-cryptographic random source.",
+    "repo": "Maheshkumar-Kakade/otp-generator",
+    "repoSizeKb": 176,
+    "vulnCommit": "d4a4f5b2b4cf0a270f9e4d8333cafc195ec9fcf8",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-327"],
+    "expect": [
+      {
+        "file": "authlib/jose/rfc7515/jws.py",
+        "startLine": 262,
+        "endLine": 267
+      }
+    ],
+    "fixCommit": "48b345f29f6c459f11c6a40162b6c0b742ef2e22",
+    "id": "GHSA-7432-952r-cw78",
+    "language": "python",
+    "note": "JWS accepted deprecated weak algorithms by default.",
+    "repo": "authlib/authlib",
+    "repoSizeKb": 5579,
+    "vulnCommit": "a5d4b2d4c9e46bfa11c82f85fdc2bcc0b50ae681",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-77", "CWE-89"],
+    "expect": [
+      {
+        "file": "lib/graph.js",
+        "startLine": 23,
+        "endLine": 38
+      }
+    ],
+    "fixCommit": "da5cbc9ab30372d687fa7c324b22af7ffa5c6332",
+    "id": "GHSA-753c-phhg-cj29",
+    "language": "js",
+    "note": "Graph generation passed unsanitized input to an external command.",
+    "repo": "pahen/madge",
+    "repoSizeKb": 1440,
+    "vulnCommit": "c0600c4df24779754e1cbf79af33944fea649aee",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-285", "CWE-639"],
+    "expect": [
+      {
+        "file": "src/main/kotlin/org/opensearch/observability/security/UserAccessManager.kt",
+        "startLine": 147,
+        "endLine": 150
+      }
+    ],
+    "fixCommit": "014423178f8f61d90442dde03cbdcd754c70a84e",
+    "id": "GHSA-77vc-rj32-2r33",
+    "language": "kotlin",
+    "note": "Access check ignored per-user ownership for private tenants. [doubtful: added-lines-only fix, CWE-285/639 is only a loose match for CWE-287/306 authorization scope]",
+    "repo": "opensearch-project/observability",
+    "repoSizeKb": 33746,
+    "vulnCommit": "162e81a61874c08a3a8ded1d0e39b6aa77390748",
+    "doubtful": true,
+    "inScope": false
+  },
+  {
+    "cwe": ["CWE-89"],
+    "expect": [
+      {
+        "file": "src/DataSource/Processors/Database/Pipelines/Sorting.php",
+        "startLine": 32,
+        "endLine": 45
+      }
+    ],
+    "fixCommit": "13d047bf1637e82926e6914aa3ca0f29a4c9704a",
+    "id": "GHSA-7fgc-3h6c-698r",
+    "language": "php",
+    "note": "Sort direction is passed to sort callbacks without being restricted to asc/desc.",
+    "repo": "Power-Components/livewire-powergrid",
+    "repoSizeKb": 52453,
+    "vulnCommit": "d5ec733457773a6fb9c18ad708897bddd3a468a8",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-22"],
+    "expect": [
+      {
+        "file": "packages/angular/ssr/node/src/common-engine/common-engine.ts",
+        "startLine": 162,
+        "endLine": 174
+      }
+    ],
+    "fixCommit": "645e41a47d21b7651837a4250de99af0509626e2",
+    "id": "GHSA-7g7c-h8rr-7p6q",
+    "language": "ts",
+    "note": "SSR page path containment check uses a string prefix comparison.",
+    "repo": "angular/angular-cli",
+    "repoSizeKb": 215754,
+    "vulnCommit": "d3aaa48ef35b80c3297ee3050cd239f84d051899",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-918"],
+    "expect": [
+      {
+        "file": "core/format/xml/src/main/kotlin/org/http4k/format/Xml.kt",
+        "startLine": 42,
+        "endLine": 47
+      }
+    ],
+    "fixCommit": "35297adc6d6aca4951d50d8cdf17ff87a8b19fbc",
+    "id": "GHSA-7mj5-hjjj-8rgw",
+    "language": "kotlin",
+    "note": "XML DocumentBuilderFactory was created without restricting external entity and DTD access.",
+    "repo": "http4k/http4k",
+    "repoSizeKb": 45529,
+    "vulnCommit": "25696dff2d90206cc1da42f42a1a8dbcdbcdf18c",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-918"],
+    "expect": [
+      {
+        "file": "src/appstore/enrich.ts",
+        "startLine": 170,
+        "endLine": 172
+      }
+    ],
+    "fixCommit": "535104f655304c697d535252da397948e5101dc6",
+    "id": "GHSA-7wpf-ch8f-5f4x",
+    "language": "ts",
+    "note": "Absolute plugin-supplied icon URLs are passed through to clients.",
+    "repo": "SignalK/signalk-server",
+    "repoSizeKb": 25529,
+    "vulnCommit": "f0491e23db3739bbf31c204b3036f7fdcfd9acf9",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-22"],
+    "expect": [
+      {
+        "file": "reposilite-backend/src/main/kotlin/com/reposilite/storage/api/Location.kt",
+        "startLine": 37,
+        "endLine": 42
+      }
+    ],
+    "fixCommit": "e172ae4b539c822d0d6e04cf090713c7202a79d6",
+    "id": "GHSA-82j3-hf72-7x93",
+    "language": "kotlin",
+    "note": "Location normalization did not neutralize parent-directory sequences or drive prefixes in request paths.",
+    "repo": "dzikoysk/reposilite",
+    "repoSizeKb": 130871,
+    "vulnCommit": "279a472015ec675c1da449d902dc82e4dd578484",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-79"],
+    "expect": [
+      {
+        "file": "komga/src/main/kotlin/org/gotson/komga/interfaces/api/CommonBookController.kt",
+        "startLine": 177,
+        "endLine": 180
+      },
+      {
+        "file": "komga/src/main/kotlin/org/gotson/komga/interfaces/api/CommonBookController.kt",
+        "startLine": 241,
+        "endLine": 244
+      }
+    ],
+    "fixCommit": "100795fce4e69389d9c98a0347f82171f41a87d8",
+    "id": "GHSA-8gr3-78vq-7f76",
+    "language": "kotlin",
+    "note": "Book page responses were served inline without a Content-Security-Policy sandbox header. [doubtful: added-lines-only fix, ranges are context around insertion]",
+    "repo": "gotson/komga",
+    "repoSizeKb": 87424,
+    "vulnCommit": "865dae1550cf5943e196e91afc6144b4bc33c0a1",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-79", "CWE-116"],
+    "expect": [
+      {
+        "file": "packages/core-base/src/translate.ts",
+        "startLine": 814,
+        "endLine": 824
+      }
+    ],
+    "fixCommit": "d657ce8f4b3b6b198a8f6e3d09e2b57a5d019fb8",
+    "id": "GHSA-8rc2-428q-7ww3",
+    "language": "frontend",
+    "note": "HTML escaping of translation parameters skipped named values when a list was also passed.",
+    "repo": "intlify/vue-i18n",
+    "repoSizeKb": 34250,
+    "vulnCommit": "43391d20e7c85403cb59bdb21b5d542819f54042",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-22", "CWE-23"],
+    "expect": [
+      {
+        "file": "packages/commons-server/src/libs/server/server.ts",
+        "startLine": 2315,
+        "endLine": 2328
+      }
+    ],
+    "fixCommit": "b42bdfb7f82e83f0e81bea8e6fe41adf5ec82585",
+    "id": "GHSA-8wqc-v2q8-vff2",
+    "language": "ts",
+    "note": "Safe file path helper resolves paths without a robust containment check.",
+    "repo": "mockoon/mockoon",
+    "repoSizeKb": 48275,
+    "vulnCommit": "cf1c8f414996bc0f14467da884fd2c82b8d09024",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-918"],
+    "expect": [
+      {
+        "file": "php/elFinder.class.php",
+        "startLine": 2685,
+        "endLine": 2694
+      }
+    ],
+    "fixCommit": "191372c1bbebbd36fb55af79a84b9984861390ff",
+    "id": "GHSA-8x3q-jpjh-qh5c",
+    "language": "php",
+    "note": "Remote URL fetch fallback does not pin the validated address.",
+    "repo": "Studio-42/elFinder",
+    "repoSizeKb": 43836,
+    "vulnCommit": "36d40fff12222ad4c229d8889d8ed3fd3dbf0415",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-79"],
+    "expect": [
+      {
+        "file": "spring-webmvc/src/main/java/org/springframework/web/servlet/tags/form/AbstractHtmlElementTag.java",
+        "startLine": 466,
+        "endLine": 470
+      },
+      {
+        "file": "spring-webmvc/src/main/java/org/springframework/web/servlet/tags/form/AbstractHtmlElementTag.java",
+        "startLine": 496,
+        "endLine": 502
+      }
+    ],
+    "fixCommit": "1829b42b9c45e780c268dd17863d9198d62154d3",
+    "id": "GHSA-957g-f97v-vppc",
+    "language": "java",
+    "note": "JSP form tag writes cssStyle/cssClass attribute values without HTML escaping; fix routes them through the escaping writer.",
+    "repo": "spring-projects/spring-framework",
+    "repoSizeKb": 253710,
+    "vulnCommit": "86d99790dbaa8ce6bb1087ef92844d0abfdab015",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-79"],
+    "expect": [
+      {
+        "file": "src/Extension/DisallowedRawHtml/DisallowedRawHtmlRenderer.php",
+        "startLine": 46,
+        "endLine": 52
+      }
+    ],
+    "fixCommit": "411afcc2a7402756d96c89af8882c724d12d47ca",
+    "id": "GHSA-97jj-33gv-5xf9",
+    "language": "php",
+    "note": "Disallowed raw HTML tag regex misses a tag name at the end of rendered output.",
+    "repo": "thephpleague/commonmark",
+    "repoSizeKb": 7134,
+    "vulnCommit": "b99b2b6ea6bea75c975ad136a14b7d1cadf58da2",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-89"],
+    "expect": [
+      {
+        "file": "src/query-builder/SelectQueryBuilder.ts",
+        "startLine": 1388,
+        "endLine": 1410
+      }
+    ],
+    "fixCommit": "1b66c44d0410bdc56a0dcefb46be41867ec0fffc",
+    "id": "GHSA-9ggv-8w38-r7pm",
+    "language": "ts",
+    "note": "ORDER BY sort and order values are accepted without allow-list validation.",
+    "repo": "typeorm/typeorm",
+    "repoSizeKb": 42459,
+    "vulnCommit": "58b403f04cfe1e0aae17e6064279cee5e1a33eb3",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-22"],
+    "expect": [
+      {
+        "file": "pkg/archive/archive.go",
+        "startLine": 292,
+        "endLine": 302
+      }
+    ],
+    "fixCommit": "7034963403c5374fecceb02070d27b335329cede",
+    "id": "GHSA-9hq4-hm3j-jmph",
+    "language": "go",
+    "note": "Archive extraction rebased absolute symlink targets under the destination, allowing escape from the extraction directory.",
+    "repo": "ddev/ddev",
+    "repoSizeKb": 155473,
+    "vulnCommit": "e40c5e6bd74b76cf4207aded80532c096ec03e49",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-327"],
+    "expect": [
+      {
+        "file": "client/cache/file.go",
+        "startLine": 124,
+        "endLine": 130
+      }
+    ],
+    "fixCommit": "e7fa4835f71f47ab1d13afd638cebf661800d5a4",
+    "id": "GHSA-9j3m-fr7q-jxfw",
+    "language": "go",
+    "note": "File cache derives file names using the MD5 hash, a weak algorithm.",
+    "repo": "beego/beego",
+    "repoSizeKb": 11989,
+    "vulnCommit": "bb72dc27ac3970e51d38ee52fc3dc1465ae25b9d",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-79"],
+    "expect": [
+      {
+        "file": "reposilite-backend/src/main/kotlin/com/reposilite/javadocs/infrastructure/JavadocEndpoints.kt",
+        "startLine": 53,
+        "endLine": 57
+      }
+    ],
+    "fixCommit": "d11609f427aba255e0f6f54b1105d5d20ab043cf",
+    "id": "GHSA-9w8w-34vr-65j2",
+    "language": "kotlin",
+    "note": "Raw javadoc resources were served without a Content-Security-Policy sandbox header.",
+    "repo": "dzikoysk/reposilite",
+    "repoSizeKb": 130871,
+    "vulnCommit": "60a21afa72a784bdad000c94d8cd4cd4fa421ed5",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-352"],
+    "expect": [
+      {
+        "file": "packages/qwik-city/middleware/node/http.ts",
+        "startLine": 21,
+        "endLine": 25
+      }
+    ],
+    "fixCommit": "f434d335277418f5bd8dd90fae5cb089e1230cb8",
+    "id": "GHSA-c54w-7j5f-xg98",
+    "language": "ts",
+    "note": "Request URL is parsed against origin allowing a protocol-relative URL to change the host, weakening origin checks.",
+    "repo": "BuilderIO/qwik",
+    "repoSizeKb": 115000,
+    "vulnCommit": "6039e46a2a34a69a22d8c7fb7c7e57e75328ae45",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-22"],
+    "expect": [
+      {
+        "file": "src/Files/Disk.php",
+        "startLine": 74,
+        "endLine": 85
+      }
+    ],
+    "fixCommit": "b5cafdfcf7ec63924e83303763be8fcae340f70b",
+    "id": "GHSA-c7r6-vx3h-w5g2",
+    "language": "php",
+    "note": "Destination path handling in temporary file copy allows writing to unintended locations.",
+    "repo": "SpartnerNL/Laravel-Excel",
+    "repoSizeKb": 4176,
+    "vulnCommit": "458061b63c6c7fa32772f5766748078a1e5baaa9",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-78"],
+    "expect": [
+      {
+        "file": "src/Pdf.php",
+        "startLine": 168,
+        "endLine": 172
+      }
+    ],
+    "fixCommit": "9e86a2b317237fc5728f712f5037164530117f7e",
+    "id": "GHSA-f5gc-qxf8-mh9g",
+    "language": "php",
+    "note": "Binary path is escaped only under a flawed executable check when building a shell command.",
+    "repo": "pontedilana/php-weasyprint",
+    "repoSizeKb": 309,
+    "vulnCommit": "79ee8eb2eef1098660ca6b0ac032483cdd41c033",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-287"],
+    "expect": [
+      {
+        "file": "lib/strategy.js",
+        "startLine": 174,
+        "endLine": 181
+      }
+    ],
+    "fixCommit": "8e3bcdff145a2219033bd782fc517229fe3e05ea",
+    "id": "GHSA-f794-r6xc-hf3v",
+    "language": "js",
+    "note": "State verification could be bypassed in the OAuth2 strategy.",
+    "repo": "jaredhanson/passport-oauth2",
+    "repoSizeKb": 192,
+    "vulnCommit": "4f8f86cbed25414902405e16391857a2c8a5e4ea",
+    "doubtful": true,
+    "inScope": false
+  },
+  {
+    "cwe": ["CWE-78", "CWE-88"],
+    "expect": [
+      {
+        "file": "git/remote.py",
+        "startLine": 1127,
+        "endLine": 1133
+      }
+    ],
+    "fixCommit": "790bb3164948625ffb043d2a162425d55923fe9a",
+    "id": "GHSA-f9j4-qggq-h239",
+    "language": "python",
+    "note": "Remote name and pull refspecs starting with a dash were passed to git as options.",
+    "repo": "gitpython-developers/GitPython",
+    "repoSizeKb": 15574,
+    "vulnCommit": "cf43820496e3d3eb7356f0a91a273107b3a65a6c",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-327"],
+    "expect": [
+      {
+        "file": "jwt/algorithms.py",
+        "startLine": 184,
+        "endLine": 195
+      }
+    ],
+    "fixCommit": "9c528670c455b8d948aff95ed50e22940d1ad3fc",
+    "id": "GHSA-ffqj-6fqr-9h24",
+    "language": "python",
+    "note": "HMAC key check used an incomplete list of disallowed asymmetric key formats.",
+    "repo": "jpadilla/pyjwt",
+    "repoSizeKb": 1399,
+    "vulnCommit": "24b29adfebcb4f057a3cef5aaf35653bc0c1c8cc",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-89"],
+    "expect": [
+      {
+        "file": "src/datastore/postgres/PgDataStore.ts",
+        "startLine": 664,
+        "endLine": 665
+      }
+    ],
+    "fixCommit": "179313a37f06b298150edba3e2b0e5a73c1415e7",
+    "id": "GHSA-ffwf-47x2-jpr8",
+    "language": "ts",
+    "note": "Room IDs are concatenated into a SQL IN list.",
+    "repo": "matrix-org/matrix-appservice-irc",
+    "repoSizeKb": 10391,
+    "vulnCommit": "8fdffdd2d5649a0a16076e2a6c6b40ffe2cbd732",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-327"],
+    "expect": [
+      {
+        "file": "classes/crypt.php",
+        "startLine": 43,
+        "endLine": 60
+      }
+    ],
+    "fixCommit": "59112c96d0a6f2b0ead6a57edd8ac465678bdcb0",
+    "id": "GHSA-fgrx-4637-fcf5",
+    "language": "php",
+    "note": "Crypto keys are generated with mt_rand and legacy AES/hash handling.",
+    "repo": "fuel/core",
+    "repoSizeKb": 9781,
+    "vulnCommit": "6ece9469366250650b75cc01e8eb6ecc711bc210",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-330"],
+    "expect": [
+      {
+        "file": "lib/form_data.js",
+        "startLine": 346,
+        "endLine": 355
+      }
+    ],
+    "fixCommit": "3d1723080e6577a66f17f163ecd345a21d8d0fd0",
+    "id": "GHSA-fjxv-7rqg-78g4",
+    "language": "js",
+    "note": "Multipart boundary was generated with Math.random.",
+    "repo": "form-data/form-data",
+    "repoSizeKb": 453,
+    "vulnCommit": "d8d67dc8ac79285154edf7d3f57dbab593b9a146",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-352", "CWE-1275"],
+    "expect": [
+      {
+        "file": "packages/oauth-providers/src/providers/discord/discordAuth.ts",
+        "startLine": 40,
+        "endLine": 51
+      }
+    ],
+    "fixCommit": "b37765f40b7bddb1d8fce39573b085222dea58c1",
+    "id": "GHSA-fm3f-ch8h-qw8q",
+    "language": "ts",
+    "note": "OAuth state cookie lacks secure and sameSite flags and state check is weak.",
+    "repo": "honojs/middleware",
+    "repoSizeKb": 16115,
+    "vulnCommit": "70623e3703408f55599bca46336631c1175c27c2",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-798"],
+    "expect": [
+      {
+        "file": "src/module.ts",
+        "startLine": 72,
+        "endLine": 72
+      },
+      {
+        "file": "src/module.ts",
+        "startLine": 82,
+        "endLine": 82
+      }
+    ],
+    "fixCommit": "5490c43f729eee60f07920bf88c0aabdc1398b6e",
+    "id": "GHSA-fp2w-g92g-fgq4",
+    "language": "frontend",
+    "note": "The GitHub token was copied into the public runtime config exposed to the browser.",
+    "repo": "nuxtlabs/github-module",
+    "repoSizeKb": 1374,
+    "vulnCommit": "140314ff47a72ee5a7c73d0c2d4573ef1cdb06f1",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-22"],
+    "expect": [
+      {
+        "file": "src/serve-static.ts",
+        "startLine": 79,
+        "endLine": 83
+      }
+    ],
+    "fixCommit": "cd076e117cfe4cb8d31f9eb11d2e8f38a6cb8faf",
+    "id": "GHSA-frvp-7c67-39w9",
+    "language": "ts",
+    "note": "Static file path filter does not reject backslash separators.",
+    "repo": "honojs/node-server",
+    "repoSizeKb": 810,
+    "vulnCommit": "9e1cdee836baeb13f33e857a582b29546185c324",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-328", "CWE-326"],
+    "expect": [
+      {
+        "file": "src/main/java/org/jenkinsci/plugins/scriptsecurity/scripts/ScriptApproval.java",
+        "startLine": 390,
+        "endLine": 400
+      }
+    ],
+    "fixCommit": "65867aa471265a16198b92fb439782ba3554da66",
+    "id": "GHSA-fv42-mx39-6fpw",
+    "language": "java",
+    "note": "Script and classpath approval hashes use SHA-1; fix moves to a stronger digest.",
+    "repo": "jenkinsci/script-security-plugin",
+    "repoSizeKb": 1837,
+    "vulnCommit": "bab7c8fd5fded0d1ae4ab3745759920fd974a8bd",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-79", "CWE-116"],
+    "expect": [
+      {
+        "file": "packages/shared/src/domAttrConfig.ts",
+        "startLine": 36,
+        "endLine": 36
+      }
+    ],
+    "fixCommit": "a2b40db9a83b36ed9da3a16403cf8f040262d73f",
+    "id": "GHSA-g2v6-rqmx-r4w6",
+    "language": "frontend",
+    "note": "The SSR attribute-name blacklist regex omitted the carriage return character.",
+    "repo": "vuejs/core",
+    "repoSizeKb": 48594,
+    "vulnCommit": "f8975657d7451d8e4291406427e6a8ae5e50c8d5",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-78"],
+    "expect": [
+      {
+        "file": "pheditor.php",
+        "startLine": 583,
+        "endLine": 607
+      }
+    ],
+    "fixCommit": "f40f5070d5a171b65359bc87568734d31de498e1",
+    "id": "GHSA-g3hq-hphg-8fhh",
+    "language": "php",
+    "note": "Terminal feature command allowlist check is bypassable and runs through shell_exec.",
+    "repo": "pheditor/pheditor",
+    "repoSizeKb": 206,
+    "vulnCommit": "a64eb935ce699e43f1ea60e46d47f33e2f87ffd6",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-352"],
+    "expect": [
+      {
+        "file": "index.js",
+        "startLine": 76,
+        "endLine": 78
+      },
+      {
+        "file": "index.js",
+        "startLine": 89,
+        "endLine": 91
+      },
+      {
+        "file": "index.js",
+        "startLine": 105,
+        "endLine": 107
+      }
+    ],
+    "fixCommit": "bff756b456cbb769080631af2beb85671ff4c79c",
+    "id": "GHSA-g8x5-p9qc-cf95",
+    "language": "js",
+    "note": "OAuth2 flow did not bind the state value to the user's session.",
+    "repo": "fastify/fastify-oauth2",
+    "repoSizeKb": 426,
+    "vulnCommit": "85c1057966f6ec51df354a08fbb1279f560582e0",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-79", "CWE-80"],
+    "expect": [
+      {
+        "file": "index.js",
+        "startLine": 14,
+        "endLine": 27
+      }
+    ],
+    "fixCommit": "2bdbaaff9cb8a4639135eb24cfcd383d3fefb534",
+    "id": "GHSA-gfhx-hw2g-v5hg",
+    "language": "js",
+    "note": "Serialized output was not fully escaped for script contexts.",
+    "repo": "yahoo/serialize-javascript",
+    "repoSizeKb": 337,
+    "vulnCommit": "8c8caa7066a52106fa719c6abb5dc69858c9f799",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-287"],
+    "expect": [
+      {
+        "file": "gpustack/api/auth.py",
+        "startLine": 121,
+        "endLine": 126
+      }
+    ],
+    "fixCommit": "53f42a6a553542974396d16a4ff6b12bcbedb48d",
+    "id": "GHSA-gj9m-f8ph-pmhr",
+    "language": "python",
+    "note": "Requests from 127.0.0.1 were authenticated as admin without credentials.",
+    "repo": "gpustack/gpustack",
+    "repoSizeKb": 231117,
+    "vulnCommit": "aff1b0d15153349d730ffab46969a26ee2317259",
+    "doubtful": true,
+    "inScope": false
+  },
+  {
+    "cwe": ["CWE-89"],
+    "expect": [
+      {
+        "file": "django/db/models/sql/query.py",
+        "startLine": 54,
+        "endLine": 59
+      }
+    ],
+    "fixCommit": "e891a84c7ef9962bfcc3b4685690219542f86a22",
+    "id": "GHSA-gvg8-93h5-g6qq",
+    "language": "python",
+    "note": "Column alias validation pattern did not reject control characters, allowing SQL injection via aliases.",
+    "repo": "django/django",
+    "repoSizeKb": 285099,
+    "vulnCommit": "a33540b3e20b5d759aa8b2e4b9ca0e8edd285344",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-330"],
+    "expect": [
+      {
+        "file": "src/psm/Service/User.php",
+        "startLine": 322,
+        "endLine": 326
+      }
+    ],
+    "fixCommit": "bb10a5f3c68527c58073258cb12446782d223bc3",
+    "id": "GHSA-hc4j-7mqg-cxjj",
+    "language": "php",
+    "note": "Remember-me token is generated from mt_rand.",
+    "repo": "phpservermon/phpservermon",
+    "repoSizeKb": 10698,
+    "vulnCommit": "32fcb8b0e80c5ab13f2ac131bf3e731ead7dea02",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-287"],
+    "expect": [
+      {
+        "file": "ktor-server/ktor-server-plugins/ktor-server-auth/jvmAndNix/src/io/ktor/server/auth/AuthenticationInterceptors.kt",
+        "startLine": 159,
+        "endLine": 160
+      }
+    ],
+    "fixCommit": "258bf038e1b977afadaf61c159e5f8448d66d413",
+    "id": "GHSA-hccx-cg4v-hrjx",
+    "language": "kotlin",
+    "note": "Authentication provider names were registered on the parent route instead of the authenticated child route, so nested authenticate blocks could be bypassed.",
+    "repo": "ktorio/ktor",
+    "repoSizeKb": 154295,
+    "vulnCommit": "41289f1e1ff5a4ecaf504530ed447bd67e42a213",
+    "doubtful": false,
+    "inScope": false
+  },
+  {
+    "cwe": ["CWE-614"],
+    "expect": [
+      {
+        "file": "csrf.go",
+        "startLine": 222,
+        "endLine": 226
+      }
+    ],
+    "fixCommit": "dadd1711a617000b70e5e408a76531b73187031c",
+    "id": "GHSA-hhxg-px5h-jc32",
+    "language": "go",
+    "note": "CSRF cookie was always set with the Secure flag disabled regardless of configuration.",
+    "repo": "go-macaron/csrf",
+    "repoSizeKb": 54,
+    "vulnCommit": "428b7c62d7d0034b048b1cd43ba60d87857f5253",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-89"],
+    "expect": [
+      {
+        "file": "server/resource/resource_findallpaginated.go",
+        "startLine": 933,
+        "endLine": 941
+      }
+    ],
+    "fixCommit": "b0bcc1318832b9055781f032853ef9d2264652cf",
+    "id": "GHSA-hq2p-f2vj-v3cm",
+    "language": "go",
+    "note": "User-supplied sort order values reach the ORDER BY clause without column validation.",
+    "repo": "daptin/daptin",
+    "repoSizeKb": 148308,
+    "vulnCommit": "7880d086c46f879fe015ca44080dd86d3c71a836",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-79"],
+    "expect": [
+      {
+        "file": "cms/plugin_rendering.py",
+        "startLine": 599,
+        "endLine": 602
+      }
+    ],
+    "fixCommit": "b56a568844ff3702495945f73a31d0868285bf88",
+    "id": "GHSA-hvq6-2r72-p2x7",
+    "language": "python",
+    "note": "Exception message was interpolated into HTML without escaping.",
+    "repo": "django-cms/django-cms",
+    "repoSizeKb": 128137,
+    "vulnCommit": "27b1f6313232ea7806b25dc8a207dabf3a8f6d29",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-89", "CWE-20"],
+    "expect": [
+      {
+        "file": "lib/postgresql.js",
+        "startLine": 546,
+        "endLine": 553
+      }
+    ],
+    "fixCommit": "d57406c6737692a3a106b58a35406290cddb23e5",
+    "id": "GHSA-j259-6c58-9m58",
+    "language": "js",
+    "note": "PostgreSQL connector assembled SQL from unvalidated input.",
+    "repo": "loopbackio/loopback-connector-postgresql",
+    "repoSizeKb": 1873,
+    "vulnCommit": "1a863f3df332f1732e8fec519f1d686561313a3e",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-79"],
+    "expect": [
+      {
+        "file": "activemq-web-console/src/main/webapp/browse.jsp",
+        "startLine": 51,
+        "endLine": 51
+      },
+      {
+        "file": "activemq-web-console/src/main/webapp/queueConsumers.jsp",
+        "startLine": 63,
+        "endLine": 63
+      }
+    ],
+    "fixCommit": "1cbe5ab1122e299852b821ba33e7abd0cd76f77c",
+    "id": "GHSA-j548-68g5-9j7x",
+    "language": "java",
+    "note": "JSP pages print message and client ids with raw EL; fix wraps them in c:out.",
+    "repo": "apache/activemq",
+    "repoSizeKb": 72056,
+    "vulnCommit": "be70a7efa1efcb6bdb9988f736245b06d39a91e4",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-78"],
+    "expect": [
+      {
+        "file": "simple-git/src/lib/plugins/block-unsafe-operations-plugin.ts",
+        "startLine": 33,
+        "endLine": 37
+      }
+    ],
+    "fixCommit": "1effd8e5012a5da05a9776512fac3e39b11f2d2d",
+    "id": "GHSA-jcxm-m3jx-f287",
+    "language": "ts",
+    "note": "Clone option check for the upload-pack switch matches only a narrow form.",
+    "repo": "steveukx/git-js",
+    "repoSizeKb": 13239,
+    "vulnCommit": "1402490d14f4125b08f3b2d6c86d3baa0feae6fb",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-78"],
+    "expect": [
+      {
+        "file": "computation-local/src/main/java/com/powsybl/computation/local/UnixLocalCommandExecutor.java",
+        "startLine": 45,
+        "endLine": 53
+      }
+    ],
+    "fixCommit": "17461264d1d18f9bba43bb7855f251e9fa55a4db",
+    "id": "GHSA-jqvf-j3ww-r8c7",
+    "language": "java",
+    "note": "Shell command string is assembled from unescaped values; fix single-quotes and escapes them.",
+    "repo": "powsybl/powsybl-core",
+    "repoSizeKb": 78873,
+    "vulnCommit": "0ae58bdafdcd02d5111f33b6ed6c08f649f5ccf4",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-918"],
+    "expect": [
+      {
+        "file": "pkg/request/ssrf.go",
+        "startLine": 189,
+        "endLine": 197
+      }
+    ],
+    "fixCommit": "1c5cad6dec7ec3037c6479e3a26a3909995d16a2",
+    "id": "GHSA-jvh5-97xg-v99f",
+    "language": "go",
+    "note": "SSRF address allowlist and class check did not normalize IPv4-in-IPv6 forms.",
+    "repo": "cloudreve/cloudreve",
+    "repoSizeKb": 9466,
+    "vulnCommit": "bce08f88e9d8f881e78fd18e7a6598b31922c492",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-1188"],
+    "expect": [
+      {
+        "file": "lib/grunt/file.js",
+        "startLine": 241,
+        "endLine": 252
+      }
+    ],
+    "fixCommit": "e350cea1724eb3476464561a380fb6a64e61e4e7",
+    "id": "GHSA-m5pj-vjjf-4m3h",
+    "language": "js",
+    "note": "File reading used an unsafe default loader configuration.",
+    "repo": "gruntjs/grunt",
+    "repoSizeKb": 2802,
+    "vulnCommit": "7125f49f3766840dbd47a768d48c0a591dcc5b04",
+    "doubtful": true,
+    "inScope": false
+  },
+  {
+    "cwe": ["CWE-352"],
+    "expect": [
+      {
+        "file": "jupyterhub/_xsrf_utils.py",
+        "startLine": 194,
+        "endLine": 200
+      }
+    ],
+    "fixCommit": "9c5ec277d3cda5a59de2d8c8117efa77bd941127",
+    "id": "GHSA-m68r-v472-jgq9",
+    "language": "python",
+    "note": "XSRF check was skipped for requests sent with the no-cors fetch mode.",
+    "repo": "jupyterhub/jupyterhub",
+    "repoSizeKb": 37264,
+    "vulnCommit": "21f388dbc08a6198b297b83a2dfd3c45b8e81981",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-89"],
+    "expect": [
+      {
+        "file": "modules/backend/widgets/Filter.php",
+        "startLine": 782,
+        "endLine": 786
+      },
+      {
+        "file": "modules/backend/widgets/Filter.php",
+        "startLine": 807,
+        "endLine": 812
+      }
+    ],
+    "fixCommit": "50713de95adf5298536d93f4d999652525d36d43",
+    "id": "GHSA-m7jc-g4rc-jmvh",
+    "language": "php",
+    "note": "Filter scope conditions are built by string substitution into a raw where clause.",
+    "repo": "wintercms/winter",
+    "repoSizeKb": 70531,
+    "vulnCommit": "555e67c84b503b60aa0a5775382087c5da97b7ca",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-79"],
+    "expect": [
+      {
+        "file": "modules/tinymce/src/plugins/media/main/ts/core/FilterContent.ts",
+        "startLine": 12,
+        "endLine": 14
+      }
+    ],
+    "fixCommit": "bd1ab5ef024c648c3f9c0b409e54a6c227c7d8a2",
+    "id": "GHSA-mf2p-h6hf-fcwm",
+    "language": "frontend",
+    "note": "The media plugin created elements in the live document while filtering content instead of an inert document.",
+    "repo": "tinymce/tinymce",
+    "repoSizeKb": 153481,
+    "vulnCommit": "cca1212366f0e9e27c4ea21bd1171ca5a3ea8203",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-22"],
+    "expect": [
+      {
+        "file": "data/download/src/main/kotlin/com/stash/data/download/DownloadExecutor.kt",
+        "startLine": 144,
+        "endLine": 148
+      }
+    ],
+    "fixCommit": "96fcc2e166a8f5f427eaf31318b8f6dd107873b0",
+    "id": "GHSA-mfh5-5jhr-q4v2",
+    "language": "kotlin",
+    "note": "An unvalidated video id was used in the output file name template for downloads. [doubtful: range estimated, fix is spread across many files]",
+    "repo": "rawnaldclark/Stash",
+    "repoSizeKb": 57796,
+    "vulnCommit": "25267cb81a732755faf31c145c4243592a1b5beb",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-338", "CWE-330"],
+    "expect": [
+      {
+        "file": "client/src/main/java/org/asynchttpclient/Realm.java",
+        "startLine": 611,
+        "endLine": 617
+      }
+    ],
+    "fixCommit": "dca2d90db87f0144ea893a6858dca13c426d06b6",
+    "id": "GHSA-mfj3-87qq-382v",
+    "language": "java",
+    "note": "Digest-auth client nonce comes from a non-cryptographic random source; fix uses SecureRandom.",
+    "repo": "AsyncHttpClient/async-http-client",
+    "repoSizeKb": 21304,
+    "vulnCommit": "cb1bd8942ca6cdcd1e745aad74f02e9ba1c811c7",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-79"],
+    "expect": [
+      {
+        "file": "modules/backend/formwidgets/MarkdownEditor.php",
+        "startLine": 111,
+        "endLine": 118
+      }
+    ],
+    "fixCommit": "118c3d08559e811c1bf69db7c5ed82a22bcf0bbc",
+    "id": "GHSA-mqwx-84vv-mp26",
+    "language": "php",
+    "note": "Markdown editor preview renders unsanitised HTML by default.",
+    "repo": "octobercms/october",
+    "repoSizeKb": 80070,
+    "vulnCommit": "18b8c737fedd098934571f8b960fecf19c3c0cd0",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-89"],
+    "expect": [
+      {
+        "file": "django/contrib/gis/db/backends/postgis/operations.py",
+        "startLine": 53,
+        "endLine": 57
+      },
+      {
+        "file": "django/contrib/gis/db/backends/postgis/operations.py",
+        "startLine": 65,
+        "endLine": 69
+      }
+    ],
+    "fixCommit": "81aa5292967cd09319c45fe2c1a525ce7b6684d8",
+    "id": "GHSA-mwm9-4648-f68q",
+    "language": "python",
+    "note": "Raster band index values were used in SQL without an integer type check.",
+    "repo": "django/django",
+    "repoSizeKb": 285099,
+    "vulnCommit": "eb22e1d6d643360e952609ef562c139a100ea4eb",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-1004"],
+    "expect": [
+      {
+        "file": "src/nsupdate/settings/base.py",
+        "startLine": 284,
+        "endLine": 288
+      }
+    ],
+    "fixCommit": "60a3fe559c453bc36b0ec3e5dd39c1303640a59a",
+    "id": "GHSA-mwvp-qr62-cvjx",
+    "language": "python",
+    "note": "CSRF cookie was configured without the HttpOnly flag.",
+    "repo": "nsupdate-info/nsupdate.info",
+    "repoSizeKb": 5122,
+    "vulnCommit": "1732ace5a055fd77b01226165b79783026edc142",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-79", "CWE-184"],
+    "expect": [
+      {
+        "file": "src/runtime/parser/utils/props.ts",
+        "startLine": 31,
+        "endLine": 35
+      },
+      {
+        "file": "src/runtime/parser/utils/props.ts",
+        "startLine": 48,
+        "endLine": 52
+      }
+    ],
+    "fixCommit": "61d636c2983f021288e4fc5c4006733b38cf0d53",
+    "id": "GHSA-mxm6-v9r6-r94c",
+    "language": "frontend",
+    "note": "The URL sanitizer for rendered markdown attributes checked only the protocol and ignored the xlink href attribute.",
+    "repo": "nuxt-content/mdc",
+    "repoSizeKb": 7433,
+    "vulnCommit": "d6e5fc6001085f2d34b905ba0407a2f7392de388",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-918"],
+    "expect": [
+      {
+        "file": "internal/notification/dispatcher/webhook.go",
+        "startLine": 32,
+        "endLine": 50
+      }
+    ],
+    "fixCommit": "8cf7ccd5ee041ecaea92b49951793d4d2393761f",
+    "id": "GHSA-p2w3-6x73-2f6x",
+    "language": "go",
+    "note": "Webhook blocked-address check missed IPv4 addresses embedded in IPv6 transition forms.",
+    "repo": "amir20/dozzle",
+    "repoSizeKb": 183076,
+    "vulnCommit": "a9395e9f73161da9583e82ebaf78012355ce980d",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-330", "CWE-338"],
+    "expect": [
+      {
+        "file": "public/src/utils.js",
+        "startLine": 291,
+        "endLine": 301
+      }
+    ],
+    "fixCommit": "81e3c1ba488d03371a5ce8d0ebb5c5803026e0f9",
+    "id": "GHSA-p4cc-w597-6cpm",
+    "language": "js",
+    "note": "Token/random generation relied on a predictable random source.",
+    "repo": "NodeBB/NodeBB",
+    "repoSizeKb": 115924,
+    "vulnCommit": "e0080d90059b017ea86bcae97f6709e10a66883c",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-78"],
+    "expect": [
+      {
+        "file": "quote.js",
+        "startLine": 26,
+        "endLine": 32
+      }
+    ],
+    "fixCommit": "6002b2ed90c6b83095eb272b6b0adaf3a172b0bc",
+    "id": "GHSA-pqg4-j6r4-53mv",
+    "language": "js",
+    "note": "Shell quoting did not escape all special characters.",
+    "repo": "ljharb/shell-quote",
+    "repoSizeKb": 362,
+    "vulnCommit": "36f23944db50dd3f0df4da9c7cba0bb63df05f64",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-330"],
+    "expect": [
+      {
+        "file": "spring-websocket/src/main/java/org/springframework/web/socket/adapter/AbstractWebSocketSession.java",
+        "startLine": 47,
+        "endLine": 47
+      }
+    ],
+    "fixCommit": "a42a6e0c6ac64eb18954729ca5e3fe64b05a39b5",
+    "id": "GHSA-q723-847q-5g8g",
+    "language": "java",
+    "note": "WebSocket session ids are generated with a non-secure id generator; fix uses a secure one.",
+    "repo": "spring-projects/spring-framework",
+    "repoSizeKb": 253710,
+    "vulnCommit": "8a93a889620cb5ca9a5f1060b1cd815170e28472",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-352"],
+    "expect": [
+      {
+        "file": "packages/react-router/lib/rsc/server.rsc.ts",
+        "startLine": 903,
+        "endLine": 914
+      }
+    ],
+    "fixCommit": "7a71c728ad116bd78699a258b2014ce9585729f5",
+    "id": "GHSA-qwww-vcr4-c8h2",
+    "language": "frontend",
+    "note": "RSC server action handling ran the action before the origin check was enforced.",
+    "repo": "remix-run/react-router",
+    "repoSizeKb": 48614,
+    "vulnCommit": "ac5d9d5ac3ba0c38ee14e1c75ba79621b3b0ba07",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-89"],
+    "expect": [
+      {
+        "file": "lib/misc/utils.js",
+        "startLine": 125,
+        "endLine": 131
+      }
+    ],
+    "fixCommit": "6995c8cf8e51b2ad055de63dcaa4094eebbef5ce",
+    "id": "GHSA-r3rv-jm3r-62q2",
+    "language": "js",
+    "note": "SQL parameter escaping in the MariaDB Node.js connector was incomplete.",
+    "repo": "mariadb-corporation/mariadb-connector-nodejs",
+    "repoSizeKb": 5441,
+    "vulnCommit": "a4aa048b57dc47309b80e5cc25a4a8eedb32fd9f",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-89"],
+    "expect": [
+      {
+        "file": "inlong-manager/manager-service/src/main/java/org/apache/inlong/manager/service/core/impl/AuditServiceImpl.java",
+        "startLine": 242,
+        "endLine": 244
+      },
+      {
+        "file": "inlong-manager/manager-service/src/main/java/org/apache/inlong/manager/service/core/impl/AuditServiceImpl.java",
+        "startLine": 324,
+        "endLine": 329
+      }
+    ],
+    "fixCommit": "cab63a8eea6c0f4bf3d30ce245b7e1beee42504d",
+    "id": "GHSA-r5pv-7g89-cxmc",
+    "language": "java",
+    "note": "ClickHouse audit query is built by concatenating request values into SQL; fix switches to a prepared statement.",
+    "repo": "apache/inlong",
+    "repoSizeKb": 61114,
+    "vulnCommit": "77b66925708e00bee8f8442e8c7e22c0a8209aa4",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-22"],
+    "expect": [
+      {
+        "file": "src/main/kotlin/com/github/jengelman/gradle/plugins/shadow/internal/Utils.kt",
+        "startLine": 34,
+        "endLine": 40
+      }
+    ],
+    "fixCommit": "0c2744fcc050e34a084f5131d5e167b13c342bfd",
+    "id": "GHSA-rr8v-fxxf-c986",
+    "language": "kotlin",
+    "note": "Zip entry names were used without rejecting path traversal segments.",
+    "repo": "GradleUp/shadow",
+    "repoSizeKb": 8149,
+    "vulnCommit": "e822f993dba4f10fb69bfec26ca8959bdaa50ffd",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-89"],
+    "expect": [
+      {
+        "file": "phpmyfaq/src/phpMyFAQ/StopWords.php",
+        "startLine": 58,
+        "endLine": 70
+      }
+    ],
+    "fixCommit": "d56ef5d75c3c007de095bc4c13b470c7ac783f0f",
+    "id": "GHSA-rw77-vq4g-x3hp",
+    "language": "php",
+    "note": "Stop word is inserted into an SQL statement without escaping.",
+    "repo": "thorsten/phpMyFAQ",
+    "repoSizeKb": 88491,
+    "vulnCommit": "70413bef20398b3dd55f21fde4b5778e02b168db",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-287"],
+    "expect": [
+      {
+        "file": "back/loaders/express.ts",
+        "startLine": 121,
+        "endLine": 125
+      }
+    ],
+    "fixCommit": "6bec52dca158481258315ba0fc2f11206df7b719",
+    "id": "GHSA-v667-gc2r-2xm7",
+    "language": "ts",
+    "note": "Initialization route guard compares a lowercased path and misses the open API routes.",
+    "repo": "whyour/qinglong",
+    "repoSizeKb": 22542,
+    "vulnCommit": "ce599d306f81e3ebb0f6eaa5b540d701a6d4085d",
+    "doubtful": false,
+    "inScope": false
+  },
+  {
+    "cwe": ["CWE-798"],
+    "expect": [
+      {
+        "file": "dtale/app.py",
+        "startLine": 322,
+        "endLine": 324
+      }
+    ],
+    "fixCommit": "32bd6fb4a63de779ff1e51823a456865ea3cbd13",
+    "id": "GHSA-v9q6-fm48-rx74",
+    "language": "python",
+    "note": "Flask SECRET_KEY was a hard-coded constant.",
+    "repo": "man-group/dtale",
+    "repoSizeKb": 132560,
+    "vulnCommit": "81578f4a256eef0bc9bde8bf1ca703d1e8d325de",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-22"],
+    "expect": [
+      {
+        "file": "hsweb-system/hsweb-system-file/src/main/java/org/hswebframework/web/file/FileUploadProperties.java",
+        "startLine": 98,
+        "endLine": 115
+      }
+    ],
+    "fixCommit": "8009845b577d8a2c4bbf4fdd8e8913799a714be6",
+    "id": "GHSA-vjmr-f5fc-vr2w",
+    "language": "java",
+    "note": "Uploaded file name is used in the save path without sanitizing; fix normalizes it and restricts characters.",
+    "repo": "hs-web/hsweb-framework",
+    "repoSizeKb": 34812,
+    "vulnCommit": "76cb89f56e871c25721a79f2b1eb3b37f4d48570",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-918"],
+    "expect": [
+      {
+        "file": "api/lib/control/video-service.ts",
+        "startLine": 217,
+        "endLine": 221
+      }
+    ],
+    "fixCommit": "1e0f6e65977c86fbc0aa15e308c43cbcaee23a7c",
+    "id": "GHSA-vqrw-qphh-p34v",
+    "language": "ts",
+    "note": "SSRF allow-list entry is a full URL instead of a hostname.",
+    "repo": "dfpc-coe/CloudTAK",
+    "repoSizeKb": 262637,
+    "vulnCommit": "ec81b3de5c0609d030c928398a45370cf1089201",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-327"],
+    "expect": [
+      {
+        "file": "core/security/digest/src/main/kotlin/org/http4k/security/digest/DigestAuthProvider.kt",
+        "startLine": 38,
+        "endLine": 38
+      }
+    ],
+    "fixCommit": "65d23d99fc5afbe34f29d8f61d0a003fbebb381c",
+    "id": "GHSA-vxxm-wwqh-mh47",
+    "language": "kotlin",
+    "note": "Digest credential verification always used a hard-coded MD5 digest instead of the configured algorithm. [doubtful: one-line fix, CWE mapping is weak-hash choice]",
+    "repo": "http4k/http4k",
+    "repoSizeKb": 45529,
+    "vulnCommit": "ccca807984fa7216db79c5c4897b8222a385d27f",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-352"],
+    "expect": [
+      {
+        "file": "src/main/java/com/gitee/jenkins/connection/GiteeConnectionConfig.java",
+        "startLine": 91,
+        "endLine": 100
+      },
+      {
+        "file": "src/main/java/com/gitee/jenkins/connection/GiteeConnectionConfig.java",
+        "startLine": 133,
+        "endLine": 150
+      }
+    ],
+    "fixCommit": "2559f2f3f2c02659d9abe5ab3d66c13cef9278dc",
+    "id": "GHSA-w794-rwp2-jc9m",
+    "language": "java",
+    "note": "Form validation endpoints lack POST-only and permission checks; fix adds RequirePOST and a permission check.",
+    "repo": "jenkinsci/gitee-plugin",
+    "repoSizeKb": 5965,
+    "vulnCommit": "4dccbca1d628df7f133d8a5bbbade34d31c6754e",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-328"],
+    "expect": [
+      {
+        "file": "internal/auth/users.go",
+        "startLine": 62,
+        "endLine": 66
+      }
+    ],
+    "fixCommit": "de79f03aa3dbe5bb1e154a7e8d3dccbd229f3ea3",
+    "id": "GHSA-w7qr-q9fh-fj35",
+    "language": "go",
+    "note": "User passwords were hashed with unsalted SHA-256 instead of a password hashing function.",
+    "repo": "amir20/dozzle",
+    "repoSizeKb": 183076,
+    "vulnCommit": "3c15ac225c5d85701ecbfdae71aad419cf23101d",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-22"],
+    "expect": [
+      {
+        "file": "quarkdown-server/src/main/kotlin/com/quarkdown/server/endpoints/LivePreviewEndpoint.kt",
+        "startLine": 31,
+        "endLine": 33
+      },
+      {
+        "file": "quarkdown-server/src/main/kotlin/com/quarkdown/server/endpoints/LivePreviewEndpoint.kt",
+        "startLine": 41,
+        "endLine": 41
+      }
+    ],
+    "fixCommit": "6aefbdc3eea67817c64a4d972885791af8205f92",
+    "id": "GHSA-w88j-cr92-phcq",
+    "language": "kotlin",
+    "note": "Preview server resolved the requested file path under the served directory without containment validation.",
+    "repo": "iamgio/quarkdown",
+    "repoSizeKb": 36574,
+    "vulnCommit": "5f76bf3f1c1c0eda94aa55285f6efbcbed828bbd",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-79"],
+    "expect": [
+      {
+        "file": "src/plugins/modal/embed.js",
+        "startLine": 607,
+        "endLine": 611
+      }
+    ],
+    "fixCommit": "9d43a5e082101d2d6475cba86e0d58d7c2cf6677",
+    "id": "GHSA-w93q-cq9w-58p7",
+    "language": "frontend",
+    "note": "The embed plugin recreated script elements from raw embed HTML with an unchecked src.",
+    "repo": "JiHong88/suneditor",
+    "repoSizeKb": 82111,
+    "vulnCommit": "ab8427af1a0607665b0088e4c93bf453083d6a13",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-352"],
+    "expect": [
+      {
+        "file": "handler.go",
+        "startLine": 148,
+        "endLine": 167
+      }
+    ],
+    "fixCommit": "ec9bb776d8e5ba9e906b6eb70428f4e7b009feee",
+    "id": "GHSA-w9hf-35q4-vcjw",
+    "language": "go",
+    "note": "Origin check relied only on the Referer header for secure requests, weakening CSRF protection.",
+    "repo": "justinas/nosurf",
+    "repoSizeKb": 95,
+    "vulnCommit": "e5c9c1fe2d4f69668ff78f872abf3b396a08673a",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-89"],
+    "expect": [
+      {
+        "file": "src/query-compiler/default-query-compiler.ts",
+        "startLine": 1627,
+        "endLine": 1629
+      }
+    ],
+    "fixCommit": "0a602bff2f442f6c26d5e047ca8f8715179f6d24",
+    "id": "GHSA-wmrf-hv6w-mr66",
+    "language": "ts",
+    "note": "JSON path key values are appended to SQL without escaping.",
+    "repo": "kysely-org/kysely",
+    "repoSizeKb": 61663,
+    "vulnCommit": "4f43c7d2280eabb586d1db4b4ae1361aa99eca3f",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-89"],
+    "expect": [
+      {
+        "file": "glances/exports/glances_timescaledb/__init__.py",
+        "startLine": 88,
+        "endLine": 92
+      },
+      {
+        "file": "glances/exports/glances_timescaledb/__init__.py",
+        "startLine": 200,
+        "endLine": 205
+      }
+    ],
+    "fixCommit": "39161f0d6fd723d83f534b48f24cdca722573336",
+    "id": "GHSA-x46r-mf5g-xpr6",
+    "language": "python",
+    "note": "TimescaleDB exporter built SQL statements by string formatting of stat values.",
+    "repo": "nicolargo/glances",
+    "repoSizeKb": 67654,
+    "vulnCommit": "faa29ac9143c89c7b8b157ee9d7064d1ed128196",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-79"],
+    "expect": [
+      {
+        "file": "packages/nitro-server/src/runtime/handlers/island.ts",
+        "startLine": 200,
+        "endLine": 204
+      }
+    ],
+    "fixCommit": "493565e99451a0f52330b1f6b979254a4a39e5d0",
+    "id": "GHSA-xfq5-w38q-pc2x",
+    "language": "frontend",
+    "note": "Server island rendering emitted head input without sanitisation.",
+    "repo": "nuxt/nuxt",
+    "repoSizeKb": 164734,
+    "vulnCommit": "c65cef3a855dd1a61b010fa8d525cbe1ed776724",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-89"],
+    "expect": [
+      {
+        "file": "internal/core/subscribers.go",
+        "startLine": 126,
+        "endLine": 134
+      }
+    ],
+    "fixCommit": "c0a6525009a65265230185f16e8674dcc83aa024",
+    "id": "GHSA-xgjr-7j9q-2h4r",
+    "language": "go",
+    "note": "Subscriber query expression validation did not bind query arguments, allowing SQL injection via the query expression.",
+    "repo": "knadh/listmonk",
+    "repoSizeKb": 55223,
+    "vulnCommit": "e3499cf722155a11b8ca1a2baec3c09a61b9e1ed",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-79"],
+    "expect": [
+      {
+        "file": "packages/dashboard/src/lib/components/shared/table-cell/order-table-cell-components.tsx",
+        "startLine": 52,
+        "endLine": 56
+      }
+    ],
+    "fixCommit": "d7aa42a3f0cb524297a1a2fdf700e4aba9aca684",
+    "id": "GHSA-xhq9-whgq-49j5",
+    "language": "frontend",
+    "note": "A dashboard table cell stripped HTML by assigning the value to a live element innerHTML.",
+    "repo": "vendurehq/vendure",
+    "repoSizeKb": 187692,
+    "vulnCommit": "d61f3ffc8e5cf1d913942022bc672d28a26aa557",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-22"],
+    "expect": [
+      {
+        "file": "app/configuration/file_manager.go",
+        "startLine": 494,
+        "endLine": 501
+      }
+    ],
+    "fixCommit": "0fdf8e411de5d0c142ae2590cf1c54bdfc2e529a",
+    "id": "GHSA-xhv5-8fpq-g7hf",
+    "language": "go",
+    "note": "File creation by a root agent followed symlinked path components and final file.",
+    "repo": "qbee-io/qbee-agent",
+    "repoSizeKb": 2712,
+    "vulnCommit": "99a0b5a56bb0ae2d7dec29abcf25d29be16f2c36",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-639"],
+    "expect": [
+      {
+        "file": "src/main/kotlin/org/opensearch/reportsscheduler/security/UserAccessManager.kt",
+        "startLine": 118,
+        "endLine": 121
+      }
+    ],
+    "fixCommit": "2403014c57ee63268e83d919db3334b676a8c992",
+    "id": "GHSA-xmvg-335g-x44q",
+    "language": "kotlin",
+    "note": "Access check ignored per-user ownership for private tenants. [doubtful: added-lines-only fix, CWE-639 is only a loose match for CWE-287/306 authorization scope]",
+    "repo": "opensearch-project/reporting",
+    "repoSizeKb": 49113,
+    "vulnCommit": "e54a3eab2c463d2e9eb722fdc0fcec5c78c31864",
+    "doubtful": true,
+    "inScope": false
+  },
+  {
+    "cwe": ["CWE-352"],
+    "expect": [
+      {
+        "file": "lib/Froxlor/Ajax/Ajax.php",
+        "startLine": 67,
+        "endLine": 76
+      }
+    ],
+    "fixCommit": "5f540fe361e7e13e8c5a32805b793a25e9e26a0e",
+    "id": "GHSA-xpr4-8vp6-c87j",
+    "language": "php",
+    "note": "Ajax handler processes state-changing requests without validating a CSRF token.",
+    "repo": "froxlor/froxlor",
+    "repoSizeKb": 29767,
+    "vulnCommit": "f344a33edd4d7b39a30b7881e0aaa993c80f89ce",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-287"],
+    "expect": [
+      {
+        "file": "pkg/modules/auth/openid/openid.go",
+        "startLine": 384,
+        "endLine": 392
+      }
+    ],
+    "fixCommit": "7854f2729ab72000210b61c25929678fd6901630",
+    "id": "GHSA-xv7q-fvmc-jx96",
+    "language": "go",
+    "note": "OpenID login linked accounts by email without checking the provider email_verified claim.",
+    "repo": "go-vikunja/vikunja",
+    "repoSizeKb": 165962,
+    "vulnCommit": "be36c11e67d6a3a10643b17a0bcbc33d09de836a",
+    "doubtful": false,
+    "inScope": false
+  },
+  {
+    "cwe": ["CWE-78"],
+    "expect": [
+      {
+        "file": "packages/node/src/augments/fs/grep.ts",
+        "startLine": 178,
+        "endLine": 180
+      }
+    ],
+    "fixCommit": "9e1a3592903a56e500959be72276ede1708c3437",
+    "id": "GHSA-xvcc-vqjv-phqh",
+    "language": "ts",
+    "note": "Grep arguments are escaped by a weak helper before running via a shell command.",
+    "repo": "electrovir/augment-vir",
+    "repoSizeKb": 43655,
+    "vulnCommit": "c0a17704c98c56c381336a70f99d1c59c968e7d3",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-327", "CWE-328", "CWE-916"],
+    "expect": [
+      {
+        "file": "src/pbkdf2.js",
+        "startLine": 5,
+        "endLine": 26
+      }
+    ],
+    "fixCommit": "421dd538b2d34e7c24a5b72cc64dc2b9167db40a",
+    "id": "GHSA-xwcq-pm8m-c4vf",
+    "language": "js",
+    "note": "PBKDF2 defaults used a weak hash and low iteration count.",
+    "repo": "brix/crypto-js",
+    "repoSizeKb": 11074,
+    "vulnCommit": "d1f4f4daec4f053be3eea4f6233d1d05ccec22fa",
+    "doubtful": true,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-79"],
+    "expect": [
+      {
+        "file": "src/Core/XssSanitiser.php",
+        "startLine": 224,
+        "endLine": 232
+      }
+    ],
+    "fixCommit": "9b61e6d04da1a3183c4ef4081cb64fd31ae0701f",
+    "id": "GHSA-xwg4-8hqh-79jq",
+    "language": "php",
+    "note": "XSS sanitiser does not strip SVG data URIs from attributes.",
+    "repo": "silverstripe/silverstripe-framework",
+    "repoSizeKb": 116489,
+    "vulnCommit": "cea9c46eba4be31a06adf6980494623385e1296d",
+    "doubtful": false,
+    "inScope": true
+  },
+  {
+    "cwe": ["CWE-601"],
+    "expect": [
+      {
+        "file": "ktor-client/ktor-client-core/common/src/io/ktor/client/features/HttpRedirect.kt",
+        "startLine": 33,
+        "endLine": 41
+      }
+    ],
+    "fixCommit": "0c108156f45423d09014b47be810188629cb878f",
+    "id": "GHSA-xwgq-pcqx-hpmv",
+    "language": "kotlin",
+    "note": "Client redirect handling followed redirects without protocol-downgrade or credential-header checks. [doubtful: CWE-601 outside the brief list, added-lines-mostly fix, range estimated]",
+    "repo": "ktorio/ktor",
+    "repoSizeKb": 154295,
+    "vulnCommit": "50770464633c20b1c18690ac4f621655577ea006",
+    "doubtful": true,
+    "inScope": false
+  }
+]
