@@ -8,3 +8,4 @@ coverage/
 !.env.example
 pgard-report-*/
 .pack/
+tests/measure/out/
