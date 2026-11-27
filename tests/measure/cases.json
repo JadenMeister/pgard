@@ -15,7 +15,7 @@
     "repo": "detekt/detekt",
     "repoSizeKb": 248915,
     "vulnCommit": "08eac68caa24ced140cc017d4de3b258a470232b",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": false
   },
   {
@@ -72,7 +72,7 @@
     "repo": "alextselegidis/easyappointments",
     "repoSizeKb": 51397,
     "vulnCommit": "963413eb8849568f5b75589740878cac3d0d03cf",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -101,7 +101,7 @@
     "repo": "square/okhttp",
     "repoSizeKb": 68576,
     "vulnCommit": "1fd7c0afdc2cee9ba982b07d49662af7f60e1518",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": false
   },
   {
@@ -125,7 +125,7 @@
     "repo": "dromara/sureness",
     "repoSizeKb": 8695,
     "vulnCommit": "4e54fb20a927accca23f70aa5b547c00bc7843bf",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -149,7 +149,7 @@
     "repo": "spring-cloud/spring-cloud-config",
     "repoSizeKb": 41854,
     "vulnCommit": "6f17bc3d45df3cea55bfba4676d53afd26d53836",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -173,7 +173,7 @@
     "repo": "imzbf/md-editor-v3",
     "repoSizeKb": 44672,
     "vulnCommit": "bea48ec0ba51c19deda9486eb06050b5b8f50b51",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -192,7 +192,7 @@
     "repo": "miekg/dns",
     "repoSizeKb": 16487,
     "vulnCommit": "6d0449f98180253901e9551a10ce679f35ff05be",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -235,7 +235,7 @@
     "repo": "umputun/remark42",
     "repoSizeKb": 38590,
     "vulnCommit": "638fa63e8104cb7e3b5f7b6338fff2d0b684aa18",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -292,7 +292,7 @@
     "repo": "sebhildebrandt/systeminformation",
     "repoSizeKb": 7258,
     "vulnCommit": "88f2fa6def2fe99680a18c764489f96d949dfd80",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -387,7 +387,7 @@
     "repo": "vitejs/launch-editor",
     "repoSizeKb": 406,
     "vulnCommit": "ecdfce1f9ec56a9c08f225f27d8047f3cf9690b1",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -406,7 +406,7 @@
     "repo": "cloudflare/gokey",
     "repoSizeKb": 67,
     "vulnCommit": "c218168412a286494ab28fb62dd786c8feef4d20",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -468,7 +468,7 @@
     "repo": "JiHong88/suneditor",
     "repoSizeKb": 82111,
     "vulnCommit": "d943fe581be00ba1218a367d9b302c015a7c3771",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -530,7 +530,7 @@
     "repo": "pahen/madge",
     "repoSizeKb": 1440,
     "vulnCommit": "c0600c4df24779754e1cbf79af33944fea649aee",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -606,7 +606,7 @@
     "repo": "http4k/http4k",
     "repoSizeKb": 45529,
     "vulnCommit": "25696dff2d90206cc1da42f42a1a8dbcdbcdf18c",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -706,7 +706,7 @@
     "repo": "mockoon/mockoon",
     "repoSizeKb": 48275,
     "vulnCommit": "cf1c8f414996bc0f14467da884fd2c82b8d09024",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -725,7 +725,7 @@
     "repo": "Studio-42/elFinder",
     "repoSizeKb": 43836,
     "vulnCommit": "36d40fff12222ad4c229d8889d8ed3fd3dbf0415",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -787,7 +787,7 @@
     "repo": "typeorm/typeorm",
     "repoSizeKb": 42459,
     "vulnCommit": "58b403f04cfe1e0aae17e6064279cee5e1a33eb3",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -844,7 +844,7 @@
     "repo": "dzikoysk/reposilite",
     "repoSizeKb": 130871,
     "vulnCommit": "60a21afa72a784bdad000c94d8cd4cd4fa421ed5",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -863,7 +863,7 @@
     "repo": "BuilderIO/qwik",
     "repoSizeKb": 115000,
     "vulnCommit": "6039e46a2a34a69a22d8c7fb7c7e57e75328ae45",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -920,8 +920,8 @@
     "repo": "jaredhanson/passport-oauth2",
     "repoSizeKb": 192,
     "vulnCommit": "4f8f86cbed25414902405e16391857a2c8a5e4ea",
-    "doubtful": false,
-    "inScope": true
+    "doubtful": true,
+    "inScope": false
   },
   {
     "cwe": ["CWE-78", "CWE-88"],
@@ -939,7 +939,7 @@
     "repo": "gitpython-developers/GitPython",
     "repoSizeKb": 15574,
     "vulnCommit": "cf43820496e3d3eb7356f0a91a273107b3a65a6c",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -958,7 +958,7 @@
     "repo": "jpadilla/pyjwt",
     "repoSizeKb": 1399,
     "vulnCommit": "24b29adfebcb4f057a3cef5aaf35653bc0c1c8cc",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -996,7 +996,7 @@
     "repo": "fuel/core",
     "repoSizeKb": 9781,
     "vulnCommit": "6ece9469366250650b75cc01e8eb6ecc711bc210",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -1034,7 +1034,7 @@
     "repo": "honojs/middleware",
     "repoSizeKb": 16115,
     "vulnCommit": "70623e3703408f55599bca46336631c1175c27c2",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -1058,7 +1058,7 @@
     "repo": "nuxtlabs/github-module",
     "repoSizeKb": 1374,
     "vulnCommit": "140314ff47a72ee5a7c73d0c2d4573ef1cdb06f1",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -1096,7 +1096,7 @@
     "repo": "jenkinsci/script-security-plugin",
     "repoSizeKb": 1837,
     "vulnCommit": "bab7c8fd5fded0d1ae4ab3745759920fd974a8bd",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -1115,7 +1115,7 @@
     "repo": "vuejs/core",
     "repoSizeKb": 48594,
     "vulnCommit": "f8975657d7451d8e4291406427e6a8ae5e50c8d5",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -1134,7 +1134,7 @@
     "repo": "pheditor/pheditor",
     "repoSizeKb": 206,
     "vulnCommit": "a64eb935ce699e43f1ea60e46d47f33e2f87ffd6",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -1163,25 +1163,6 @@
     "repo": "fastify/fastify-oauth2",
     "repoSizeKb": 426,
     "vulnCommit": "85c1057966f6ec51df354a08fbb1279f560582e0",
-    "doubtful": false,
-    "inScope": true
-  },
-  {
-    "cwe": ["CWE-79", "CWE-80"],
-    "expect": [
-      {
-        "file": "index.js",
-        "startLine": 14,
-        "endLine": 27
-      }
-    ],
-    "fixCommit": "2bdbaaff9cb8a4639135eb24cfcd383d3fefb534",
-    "id": "GHSA-gfhx-hw2g-v5hg",
-    "language": "js",
-    "note": "Serialized output was not fully escaped for script contexts.",
-    "repo": "yahoo/serialize-javascript",
-    "repoSizeKb": 337,
-    "vulnCommit": "8c8caa7066a52106fa719c6abb5dc69858c9f799",
     "doubtful": true,
     "inScope": true
   },
@@ -1201,8 +1182,8 @@
     "repo": "gpustack/gpustack",
     "repoSizeKb": 231117,
     "vulnCommit": "aff1b0d15153349d730ffab46969a26ee2317259",
-    "doubtful": false,
-    "inScope": true
+    "doubtful": true,
+    "inScope": false
   },
   {
     "cwe": ["CWE-89"],
@@ -1259,7 +1240,7 @@
     "repoSizeKb": 154295,
     "vulnCommit": "41289f1e1ff5a4ecaf504530ed447bd67e42a213",
     "doubtful": false,
-    "inScope": true
+    "inScope": false
   },
   {
     "cwe": ["CWE-614"],
@@ -1427,15 +1408,15 @@
         "endLine": 252
       }
     ],
-    "fixCommit": "e350cea1724eb3476464561a380fb6a64e61e4e",
+    "fixCommit": "e350cea1724eb3476464561a380fb6a64e61e4e7",
     "id": "GHSA-m5pj-vjjf-4m3h",
     "language": "js",
     "note": "File reading used an unsafe default loader configuration.",
     "repo": "gruntjs/grunt",
     "repoSizeKb": 2802,
     "vulnCommit": "7125f49f3766840dbd47a768d48c0a591dcc5b04",
-    "doubtful": false,
-    "inScope": true
+    "doubtful": true,
+    "inScope": false
   },
   {
     "cwe": ["CWE-352"],
@@ -1453,7 +1434,7 @@
     "repo": "jupyterhub/jupyterhub",
     "repoSizeKb": 37264,
     "vulnCommit": "21f388dbc08a6198b297b83a2dfd3c45b8e81981",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -1496,7 +1477,7 @@
     "repo": "tinymce/tinymce",
     "repoSizeKb": 153481,
     "vulnCommit": "cca1212366f0e9e27c4ea21bd1171ca5a3ea8203",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -1577,7 +1558,7 @@
     "repo": "django/django",
     "repoSizeKb": 285099,
     "vulnCommit": "eb22e1d6d643360e952609ef562c139a100ea4eb",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -1620,7 +1601,7 @@
     "repo": "nuxt-content/mdc",
     "repoSizeKb": 7433,
     "vulnCommit": "d6e5fc6001085f2d34b905ba0407a2f7392de388",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -1677,7 +1658,7 @@
     "repo": "ljharb/shell-quote",
     "repoSizeKb": 362,
     "vulnCommit": "36f23944db50dd3f0df4da9c7cba0bb63df05f64",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -1696,7 +1677,7 @@
     "repo": "spring-projects/spring-framework",
     "repoSizeKb": 253710,
     "vulnCommit": "8a93a889620cb5ca9a5f1060b1cd815170e28472",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -1715,7 +1696,7 @@
     "repo": "remix-run/react-router",
     "repoSizeKb": 48614,
     "vulnCommit": "ac5d9d5ac3ba0c38ee14e1c75ba79621b3b0ba07",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -1734,7 +1715,7 @@
     "repo": "mariadb-corporation/mariadb-connector-nodejs",
     "repoSizeKb": 5441,
     "vulnCommit": "a4aa048b57dc47309b80e5cc25a4a8eedb32fd9f",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -1816,7 +1797,7 @@
     "repoSizeKb": 22542,
     "vulnCommit": "ce599d306f81e3ebb0f6eaa5b540d701a6d4085d",
     "doubtful": false,
-    "inScope": true
+    "inScope": false
   },
   {
     "cwe": ["CWE-798"],
@@ -1891,7 +1872,7 @@
     "repo": "http4k/http4k",
     "repoSizeKb": 45529,
     "vulnCommit": "ccca807984fa7216db79c5c4897b8222a385d27f",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -1915,7 +1896,7 @@
     "repo": "jenkinsci/gitee-plugin",
     "repoSizeKb": 5965,
     "vulnCommit": "4dccbca1d628df7f133d8a5bbbade34d31c6754e",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -1934,7 +1915,7 @@
     "repo": "amir20/dozzle",
     "repoSizeKb": 183076,
     "vulnCommit": "3c15ac225c5d85701ecbfdae71aad419cf23101d",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -1996,7 +1977,7 @@
     "repo": "justinas/nosurf",
     "repoSizeKb": 95,
     "vulnCommit": "e5c9c1fe2d4f69668ff78f872abf3b396a08673a",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -2058,7 +2039,7 @@
     "repo": "nuxt/nuxt",
     "repoSizeKb": 164734,
     "vulnCommit": "c65cef3a855dd1a61b010fa8d525cbe1ed776724",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -2077,7 +2058,7 @@
     "repo": "knadh/listmonk",
     "repoSizeKb": 55223,
     "vulnCommit": "e3499cf722155a11b8ca1a2baec3c09a61b9e1ed",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -2096,7 +2077,7 @@
     "repo": "vendurehq/vendure",
     "repoSizeKb": 187692,
     "vulnCommit": "d61f3ffc8e5cf1d913942022bc672d28a26aa557",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -2115,7 +2096,7 @@
     "repo": "qbee-io/qbee-agent",
     "repoSizeKb": 2712,
     "vulnCommit": "99a0b5a56bb0ae2d7dec29abcf25d29be16f2c36",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -2153,7 +2134,7 @@
     "repo": "froxlor/froxlor",
     "repoSizeKb": 29767,
     "vulnCommit": "f344a33edd4d7b39a30b7881e0aaa993c80f89ce",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -2173,7 +2154,7 @@
     "repoSizeKb": 165962,
     "vulnCommit": "be36c11e67d6a3a10643b17a0bcbc33d09de836a",
     "doubtful": false,
-    "inScope": true
+    "inScope": false
   },
   {
     "cwe": ["CWE-78"],
@@ -2191,7 +2172,7 @@
     "repo": "electrovir/augment-vir",
     "repoSizeKb": 43655,
     "vulnCommit": "c0a17704c98c56c381336a70f99d1c59c968e7d3",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {
@@ -2210,7 +2191,7 @@
     "repo": "brix/crypto-js",
     "repoSizeKb": 11074,
     "vulnCommit": "d1f4f4daec4f053be3eea4f6233d1d05ccec22fa",
-    "doubtful": false,
+    "doubtful": true,
     "inScope": true
   },
   {

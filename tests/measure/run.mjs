@@ -19,7 +19,16 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs, promisify } from "node:util";
 import { PGARD_VERSION, runCodeOnlyScan } from "@pgard/scan-core";
-import { hasSupportedLanguage, matchCase, renderMarkdown } from "./lib.mjs";
+import { familiesForCwes } from "./cwe-families.mjs";
+import {
+  cacheDirName,
+  fixCheck,
+  judgeCase,
+  positiveInt,
+  renderMarkdown,
+  validRepo,
+  validSha,
+} from "./lib.mjs";
 
 const run = promisify(execFile);
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -39,13 +48,29 @@ const { values: args } = parseArgs({
   },
 });
 
+const fail = (message) => {
+  console.error(`measure: ${message}`);
+  process.exit(2);
+};
+if (args.limit !== undefined && positiveInt(args.limit) === null)
+  fail("--limit must be a positive integer");
+if (positiveInt(args.jobs) === null) fail("--jobs must be a positive integer");
+if (args["write-results"] && (args.lang || args.id?.length || args.limit)) {
+  fail("--write-results is for a full run: do not combine it with --lang, --id or --limit");
+}
+
 const cache = path.resolve(args.cache ?? path.join(homedir(), ".cache", "pgard-measure"));
 const outDir = path.resolve(args.out ?? path.join(here, "out"));
-const jobs = Math.max(1, Number(args.jobs) || 1);
+const jobs = positiveInt(args.jobs);
 const cases = JSON.parse(readFileSync(path.join(here, "cases.json"), "utf8"))
   .filter((c) => (args.lang ? c.language === args.lang : true))
   .filter((c) => (args.id?.length ? args.id.includes(c.id) : true))
-  .slice(0, args.limit ? Number(args.limit) : undefined);
+  .slice(0, args.limit ? positiveInt(args.limit) : undefined);
+for (const c of cases) {
+  if (!validRepo(c.repo) || !validSha(c.vulnCommit) || !validSha(c.fixCommit)) {
+    fail(`${c.id}: repo or commit has an unsafe format`);
+  }
+}
 
 // No auth, no prompts, no user config: git only reads public objects over https.
 const gitEnv = (home) => ({
@@ -89,7 +114,7 @@ function withRepoLock(repo, task) {
 
 /** Fetches one commit (depth 1) into the cache, then writes its files into a new temp folder. */
 async function checkout(repo, sha) {
-  const gitDir = path.join(cache, `${repo.replace("/", "__")}.git`);
+  const gitDir = path.join(cache, cacheDirName(repo));
   await withRepoLock(repo, async () => {
     mkdirSync(gitDir, { recursive: true });
     await git(gitDir, ["init", "-q", "--bare"]);
@@ -103,6 +128,7 @@ async function checkout(repo, sha) {
         "1",
         "--no-tags",
         "--no-recurse-submodules",
+        "--",
         `https://github.com/${repo}`,
         sha,
       ]);
@@ -113,7 +139,7 @@ async function checkout(repo, sha) {
   const tree = path.join(root, "tree");
   mkdirSync(tree);
   const env = { GIT_DIR: gitDir, GIT_INDEX_FILE: index, GIT_WORK_TREE: tree };
-  await git(tree, ["read-tree", sha], env);
+  await git(tree, ["read-tree", "--", sha], env);
   await git(tree, ["checkout-index", "-a", "-f"], env);
   return { root, tree };
 }
@@ -130,8 +156,8 @@ async function scanTree(tree) {
       path: f.location.path,
       line: f.location.line,
     })),
-    // Area ids only (never notes). `partial` = some code area did not finish; the list says which.
-    partialAreas: result.coverage.filter((c) => c.status === "partial").map((c) => c.area),
+    // Area ids, status and rule ids only (never notes).
+    coverage: result.coverage.map((c) => ({ area: c.area, status: c.status, ruleIds: c.ruleIds })),
   };
 }
 
@@ -152,6 +178,11 @@ async function measure(testCase) {
     anyFindingsInFile: 0,
   };
   const finish = () => ({ ...record, wallMs: Date.now() - started });
+  if (familiesForCwes(testCase.cwe).length === 0) {
+    // No PGARD rule for this CWE: nothing to fetch or scan.
+    Object.assign(record, judgeCase(testCase, [], []));
+    return finish();
+  }
   let work = null;
   try {
     try {
@@ -160,10 +191,6 @@ async function measure(testCase) {
       record.error = `fetch: ${String(error.stderr ?? error.message)
         .split("\n")[0]
         .slice(0, 200)}`;
-      return finish();
-    }
-    if (!hasSupportedLanguage(testCase)) {
-      record.status = "unsupported-language";
       return finish();
     }
     // A checkout without any expected file would turn into a silent "miss": report it instead.
@@ -181,20 +208,18 @@ async function measure(testCase) {
         .slice(0, 200)}`;
       return finish();
     }
-    Object.assign(record, matchCase(testCase, scan.findings), {
-      partial: scan.partialAreas.length > 0,
-      partialAreas: scan.partialAreas,
+    Object.assign(record, judgeCase(testCase, scan.findings, scan.coverage), {
       findings: scan.findings.length,
     });
     // Process-wide RSS after the scan (with --jobs > 1 it covers all running cases).
     record.rssMb = Math.round(process.memoryUsage().rss / 1048576);
-    if (args["fix-check"] && record.status !== "miss") {
+    if (args["fix-check"] && record.status === "hit") {
       let fixWork = null;
       try {
         fixWork = await checkout(testCase.repo, testCase.fixCommit);
-        const fixed = matchCase(testCase, (await scanTree(fixWork.tree)).findings);
-        record.fixSameFamilyInFile = fixed.sameFamilyInFile;
-        record.fixGone = fixed.sameFamilyInFile < record.sameFamilyInFile;
+        const fixFindings = (await scanTree(fixWork.tree)).findings;
+        const hasFile = testCase.expect.some((r) => existsSync(path.join(fixWork.tree, r.file)));
+        Object.assign(record, fixCheck(testCase, record.matchedRules, fixFindings, hasFile));
       } catch (error) {
         record.fixError = String(error.stderr ?? error.message)
           .split("\n")[0]
